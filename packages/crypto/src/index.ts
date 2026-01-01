@@ -39,5 +39,10 @@ export type {
   CryptoResult,
 } from "./types.js";
 
-// Placeholder for future implementations
-// Actual crypto functions will be added in subsequent issues (#85-87)
+// Export WebWorker API
+export {
+  initCryptoWorker,
+  terminateCryptoWorker,
+  getCryptoWorker,
+  type CryptoWorkerApi,
+} from "./worker/index.js";

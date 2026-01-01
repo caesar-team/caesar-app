@@ -25,13 +25,8 @@
     "@caesar/typescript-config": "workspace:*",
     "typescript": "^5.7.2"
   },
-  "keywords": [
-    "cryptography",
-    "web-crypto",
-    "encryption",
-    "aes-gcm",
-    "rsa-oaep",
-    "ecdh",
-    "scrypt"
-  ]
+  "keywords": ["cryptography", "web-crypto", "encryption", "aes-gcm", "rsa-oaep", "ecdh", "scrypt"],
+  "dependencies": {
+    "comlink": "^4.4.2"
+  }
 }

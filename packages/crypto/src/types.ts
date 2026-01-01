@@ -266,6 +266,4 @@ export interface CryptoError {
 /**
  * Crypto operation result
  */
-export type CryptoResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: CryptoError };
+export type CryptoResult<T> = { success: true; data: T } | { success: false; error: CryptoError };
