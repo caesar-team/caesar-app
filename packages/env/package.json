@@ -1,0 +1,22 @@
+{
+  "name": "@caesar/env",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@caesar/typescript-config": "workspace:*",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.2"
+  }
+}
