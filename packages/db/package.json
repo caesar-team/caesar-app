@@ -1,0 +1,29 @@
+{
+  "name": "@caesar/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "type-check": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@caesar/env": "workspace:*",
+    "@prisma/client": "^6.2.1"
+  },
+  "devDependencies": {
+    "@caesar/typescript-config": "workspace:*",
+    "@types/node": "^22.10.5",
+    "prisma": "^6.2.1",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,17 @@
+# Prisma
+*.db
+*.db-journal
+migrations/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.DS_Store
