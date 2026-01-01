@@ -11,15 +11,12 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/env": {
-      "name": "@caesar/env",
+    "packages/crypto": {
+      "name": "@caesar/crypto",
       "version": "0.0.0",
-      "dependencies": {
-        "zod": "^3.24.1",
-      },
       "devDependencies": {
+        "@biomejs/biome": "^1.9.4",
         "@caesar/typescript-config": "workspace:*",
-        "@types/node": "^22.10.5",
         "typescript": "^5.7.2",
       },
     },
@@ -47,7 +44,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@1.9.4", "", { "os": "win32", "cpu": "x64" }, "sha512-8Y5wMhVIPaWe6jw2H+KlEm4wP/f7EW3810ZLmDlrEEy5KvBsb9ECEfu/kMWD484ijfQ8+nIi0giMgu9g1UAuuA=="],
 
-    "@caesar/env": ["@caesar/env@workspace:packages/env"],
+    "@caesar/crypto": ["@caesar/crypto@workspace:packages/crypto"],
 
     "@caesar/typescript-config": ["@caesar/typescript-config@workspace:packages/typescript-config"],
 
@@ -70,7 +67,5 @@
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
-
-    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
   }
 }
