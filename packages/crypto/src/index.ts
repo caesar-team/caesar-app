@@ -39,5 +39,9 @@ export type {
   CryptoResult,
 } from "./types.js";
 
-// Placeholder for future implementations
-// Actual crypto functions will be added in subsequent issues (#85-87)
+// Export symmetric encryption functions
+export {
+  generateKey,
+  encrypt,
+  decrypt,
+} from "./symmetric.js";
