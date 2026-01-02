@@ -1,0 +1,322 @@
+// ============================================
+// CAESAR SCHEMA - ZenStack ORM
+// ============================================
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+plugin enhancer {
+  provider = "@core/enhancer"
+}
+
+plugin zod {
+  provider = "@core/zod"
+}
+
+// ============================================
+// BETTER AUTH MODELS (required by Better Auth)
+// ============================================
+
+model User {
+  id                    String    @id
+  email                 String    @unique
+  name                  String?
+  emailVerified         Boolean   @default(false)
+  image                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  // === Caesar-specific fields ===
+  publicKey             String?
+  encryptedPrivateKey   String?
+
+  // Relations
+  items                 Item[]
+  directories           Directory[]
+  teamKeys              TeamKey[]
+  sessions              Session[]
+  accounts              Account[]
+  members               Member[]
+
+  // === ACL ===
+  @@allow('create', true)
+  @@allow('read', true)
+  @@allow('update', auth() == this)
+  @@allow('delete', auth() == this)
+
+  // Protect private key from all operations except owner
+  @@deny('all', encryptedPrivateKey != null && auth() != this)
+}
+
+model Session {
+  id                    String    @id
+  expiresAt             DateTime
+  token                 String    @unique
+  ipAddress             String?
+  userAgent             String?
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@allow('all', auth() != null && auth().id == userId)
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@allow('all', auth() != null && auth().id == userId)
+}
+
+model Verification {
+  id                    String    @id
+  identifier            String
+  value                 String
+  expiresAt             DateTime
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@allow('all', true)
+}
+
+// ============================================
+// ORGANIZATIONS (Better Auth) = Teams (Caesar)
+// ============================================
+
+model Organization {
+  id          String    @id
+  name        String
+  slug        String    @unique
+  logo        String?
+  metadata    String?
+  createdAt   DateTime  @default(now())
+
+  items       Item[]
+  directories Directory[]
+  teamKeys    TeamKey[]
+  members     Member[]
+  invitations Invitation[]
+
+  publicKey   String?
+
+  @@allow('read', members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  @@allow('update', members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('delete', members?[userId == auth().id && role == 'owner'])
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String       @default("member")
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+
+  @@allow('read', organization.members?[userId == auth().id])
+  @@allow('create', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('update', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('delete', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  inviterId      String
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@allow('all', true)
+}
+
+// ============================================
+// TEAM KEYS (E2E encryption per member)
+// ============================================
+
+model TeamKey {
+  id                    String       @id @default(cuid())
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId        String
+
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String
+
+  encryptedPrivateKey   String
+
+  // Key rotation support
+  version               Int          @default(1)
+
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+
+  @@allow('read', userId == auth().id)
+  @@allow('create', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('update', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('delete', organization.members?[userId == auth().id && role == 'owner'])
+}
+
+// ============================================
+// ITEMS (Secrets)
+// ============================================
+
+enum ItemType {
+  CREDENTIALS
+  DOCUMENT
+  KEYPAIR
+}
+
+model Item {
+  id              String       @id @default(cuid())
+  type            ItemType     @default(CREDENTIALS)
+
+  secret          String
+
+  owner           User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId         String
+
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String?
+
+  directory       Directory    @relation(fields: [directoryId], references: [id])
+  directoryId     String
+
+  // Ephemeral (cleanup via cron in M6 for PostgreSQL)
+  expiresAt       DateTime?
+  maxViews        Int?
+  currentViews    Int          @default(0)
+  sharePassword   String?
+  shareId         String?      @unique
+
+  // Soft delete
+  deletedAt       DateTime?
+  deletedBy       String?
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // === ACL ===
+  @@deny('read', deletedAt != null && ownerId != auth().id)
+  @@deny('read', expiresAt != null && expiresAt < now())
+  @@deny('read', maxViews != null && currentViews >= maxViews)
+
+  @@allow('all', organizationId == null && ownerId == auth().id)
+
+  @@allow('all', organization.members?[userId == auth().id && role == 'owner'])
+  @@allow('all', organization.members?[userId == auth().id && role == 'admin'])
+  @@allow('read,update', organization.members?[userId == auth().id && role == 'member'])
+  @@allow('read', organization.members?[userId == auth().id && role == 'guest'])
+
+  // Anonymous access for ephemeral secrets
+  @@allow('read', sharePassword != null && shareId != null)
+
+  @@index([expiresAt])
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([shareId])
+}
+
+// ============================================
+// DIRECTORIES
+// ============================================
+
+enum DirectoryType {
+  DEFAULT
+  INBOX
+  LIST
+  TRASH
+}
+
+model Directory {
+  id              String        @id @default(cuid())
+  name            String
+  type            DirectoryType @default(LIST)
+  sortOrder       Int           @default(0)
+
+  owner           User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId         String
+
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String?
+
+  items           Item[]
+
+  deletedAt       DateTime?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@deny('read', deletedAt != null)
+
+  @@allow('all', organizationId == null && ownerId == auth().id)
+  @@allow('all', organization.members?[userId == auth().id && role in ['owner', 'admin']])
+  @@allow('read', organization.members?[userId == auth().id])
+  @@allow('create', organization.members?[userId == auth().id && role == 'member'])
+
+  @@index([organizationId])
+  @@index([ownerId])
+}
+
+// ============================================
+// TWO FACTOR (Better Auth)
+// ============================================
+
+model TwoFactor {
+  id              String    @id
+  secret          String
+  backupCodes     String
+  userId          String    @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@allow('all', auth() != null)
+}
+
+// ============================================
+// PASSKEY (Better Auth)
+// ============================================
+
+model Passkey {
+  id              String    @id
+  name            String?
+  publicKey       String
+  userId          String
+  webauthnUserID  String
+  counter         Int
+  deviceType      String
+  backedUp        Boolean
+  transports      String?
+  createdAt       DateTime  @default(now())
+
+  @@allow('all', auth() != null)
+}

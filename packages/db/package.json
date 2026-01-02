@@ -10,7 +10,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "type-check": "tsc --noEmit",
-    "db:generate": "prisma generate",
+    "db:generate": "zenstack generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
@@ -18,10 +18,13 @@
   },
   "dependencies": {
     "@caesar/env": "workspace:*",
-    "@prisma/client": "^6.2.1"
+    "@prisma/client": "^6.2.1",
+    "@zenstackhq/runtime": "^2.11.3",
+    "zenstack": "^2.11.3"
   },
   "devDependencies": {
     "@caesar/typescript-config": "workspace:*",
+    "@faker-js/faker": "^9.3.0",
     "@types/node": "^22.10.5",
     "prisma": "^6.2.1",
     "typescript": "^5.7.2"
