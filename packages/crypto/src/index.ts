@@ -39,7 +39,20 @@ export type {
   CryptoResult,
 } from "./types.js";
 
-// Export symmetric encryption functions
+// ============================================================================
+// Key Derivation (Scrypt)
+// ============================================================================
+
+export {
+  deriveKey,
+  deriveKeyWithMetadata,
+  DEFAULT_SCRYPT_PARAMS,
+} from "./scrypt.js";
+
+// ============================================================================
+// Symmetric Encryption (AES-GCM)
+// ============================================================================
+
 export {
   generateKey,
   encrypt,
