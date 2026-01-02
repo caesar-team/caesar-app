@@ -35,6 +35,7 @@
     "scrypt"
   ],
   "dependencies": {
-    "@noble/hashes": "^2.0.1"
+    "@noble/hashes": "^2.0.1",
+    "comlink": "^4.4.2"
   }
 }

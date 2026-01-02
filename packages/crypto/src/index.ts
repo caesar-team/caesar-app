@@ -86,3 +86,14 @@ export {
   importEcdhPublicKey,
   importEcdhPrivateKey,
 } from "./ecdh.js";
+
+// ============================================================================
+// WebWorker API
+// ============================================================================
+
+export {
+  initCryptoWorker,
+  terminateCryptoWorker,
+  getCryptoWorker,
+  type CryptoWorkerApi,
+} from "./worker/index.js";
