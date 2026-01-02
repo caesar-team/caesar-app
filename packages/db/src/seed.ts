@@ -5,7 +5,7 @@ export function createFakeUser(
     id: string;
     email: string;
     name: string;
-  }>,
+  }>
 ) {
   return {
     id: overrides?.id ?? faker.string.uuid(),
@@ -19,7 +19,7 @@ export function createFakeOrganization(
     id: string;
     name: string;
     slug: string;
-  }>,
+  }>
 ) {
   const name = overrides?.name ?? faker.company.name();
   return {
@@ -32,7 +32,7 @@ export function createFakeOrganization(
 export function createFakeMember(
   organizationId: string,
   userId: string,
-  role: "owner" | "admin" | "member" | "guest" = "member",
+  role: "owner" | "admin" | "member" | "guest" = "member"
 ) {
   return {
     id: faker.string.uuid(),

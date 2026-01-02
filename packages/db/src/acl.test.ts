@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createFakeUser,
-  createFakeOrganization,
-  createFakeMember,
-} from "./seed";
+import { createFakeMember, createFakeOrganization, createFakeUser } from "./seed";
 
 describe("ACL Rules", () => {
   describe("User model", () => {
@@ -37,7 +33,7 @@ describe("ACL Rules", () => {
     });
 
     test("non-member cannot read organization", async () => {
-      const user = createFakeUser();
+      const _user = createFakeUser();
       const org = createFakeOrganization();
       // TODO: After db:generate - should throw or return null
       expect(org.id).toBeDefined();
@@ -58,7 +54,7 @@ describe("ACL Rules", () => {
     test("user can only read own team key", async () => {
       const alice = createFakeUser();
       const bob = createFakeUser();
-      const org = createFakeOrganization();
+      const _org = createFakeOrganization();
       // TODO: After db:generate
       // Alice should see her TeamKey, not Bob's
       expect(alice.id).not.toBe(bob.id);

@@ -9,18 +9,14 @@ const serverSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
   // Better Auth
-  BETTER_AUTH_SECRET: z
-    .string()
-    .min(32, "BETTER_AUTH_SECRET must be at least 32 characters"),
+  BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters"),
   BETTER_AUTH_URL: z.string().url("BETTER_AUTH_URL must be a valid URL"),
 
   // Passkeys
   PASSKEY_RP_ID: z.string().min(1, "PASSKEY_RP_ID is required"),
 
   // Node environment
-  NODE_ENV: z
-    .enum(["development", "test", "production"])
-    .default("development"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 
 /**
@@ -45,10 +41,7 @@ function validateEnv() {
     : { success: true as const, data: {} as z.infer<typeof serverSchema> };
 
   if (!server.success) {
-    console.error(
-      "❌ Invalid server environment variables:",
-      server.error.flatten().fieldErrors,
-    );
+    console.error("❌ Invalid server environment variables:", server.error.flatten().fieldErrors);
     throw new Error("Invalid server environment variables");
   }
 
@@ -58,10 +51,7 @@ function validateEnv() {
   });
 
   if (!client.success) {
-    console.error(
-      "❌ Invalid client environment variables:",
-      client.error.flatten().fieldErrors,
-    );
+    console.error("❌ Invalid client environment variables:", client.error.flatten().fieldErrors);
     throw new Error("Invalid client environment variables");
   }
 

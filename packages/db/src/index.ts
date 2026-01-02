@@ -1,5 +1,5 @@
-import { PrismaClient } from "@prisma/client";
 import { serverEnv } from "@caesar/env";
+import { PrismaClient } from "@prisma/client";
 
 /**
  * Global Prisma client instance to prevent multiple instances in development.
@@ -18,10 +18,7 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log:
-      serverEnv.NODE_ENV === "development"
-        ? ["query", "error", "warn"]
-        : ["error"],
+    log: serverEnv.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
   });
 
 if (serverEnv.NODE_ENV !== "production") {

@@ -1,8 +1,8 @@
-import { betterAuth } from "better-auth";
-import { prismaAdapter } from "better-auth/adapters/prisma";
-import { organization, twoFactor, passkey } from "better-auth/plugins";
 import { prisma } from "@caesar/db";
 import { serverEnv } from "@caesar/env";
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { organization, passkey, twoFactor } from "better-auth/plugins";
 
 /**
  * Better Auth server configuration.
@@ -80,10 +80,7 @@ export const auth = betterAuth({
           description: "Guest with limited read-only access",
         },
       },
-      sendInvitationEmail: async (data) => {
-        // TODO: Implement email sending
-        console.log("Send invitation email:", data);
-      },
+      sendInvitationEmail: async (_data) => {},
     }),
 
     twoFactor({

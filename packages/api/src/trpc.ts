@@ -1,6 +1,6 @@
-import { initTRPC, TRPCError } from "@trpc/server";
-import { type Session } from "@caesar/auth";
-import { prisma, type User } from "@caesar/db";
+import type { Session } from "@caesar/auth";
+import { type User, prisma } from "@caesar/db";
+import { TRPCError, initTRPC } from "@trpc/server";
 import { enhance } from "@zenstackhq/runtime";
 import SuperJSON from "superjson";
 

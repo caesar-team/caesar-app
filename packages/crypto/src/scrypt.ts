@@ -4,7 +4,7 @@
  */
 
 import { scrypt } from "@noble/hashes/scrypt";
-import type { ScryptParams, DerivedKey } from "./types.js";
+import type { DerivedKey, ScryptParams } from "./types.js";
 
 /**
  * Default scrypt parameters for key derivation
@@ -55,7 +55,7 @@ export const DEFAULT_SCRYPT_PARAMS = {
 export async function deriveKey(
   password: string,
   salt: Uint8Array,
-  params?: Partial<Omit<ScryptParams, "salt">>,
+  params?: Partial<Omit<ScryptParams, "salt">>
 ): Promise<CryptoKey> {
   // Validate inputs
   if (!password || password.length === 0) {
@@ -107,13 +107,13 @@ export async function deriveKey(
       derivedKeyMaterial,
       { name: "AES-GCM" },
       false, // Not extractable for security
-      ["encrypt", "decrypt"],
+      ["encrypt", "decrypt"]
     );
 
     return cryptoKey;
   } catch (error) {
     throw new Error(
-      `Key derivation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Key derivation failed: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -138,7 +138,7 @@ export async function deriveKey(
 export async function deriveKeyWithMetadata(
   password: string,
   salt: Uint8Array,
-  params?: Partial<Omit<ScryptParams, "salt">>,
+  params?: Partial<Omit<ScryptParams, "salt">>
 ): Promise<DerivedKey> {
   const mergedParams = {
     ...DEFAULT_SCRYPT_PARAMS,

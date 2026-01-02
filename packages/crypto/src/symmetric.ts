@@ -6,12 +6,12 @@
  */
 
 import type {
-  SymmetricKey,
-  EncryptedData,
-  AesKeyGenParams,
   AesGcmParams,
-  CryptoResult,
+  AesKeyGenParams,
   CryptoError,
+  CryptoResult,
+  EncryptedData,
+  SymmetricKey,
 } from "./types.js";
 
 /**
@@ -123,11 +123,7 @@ export async function encrypt(
       tagLength: DEFAULT_TAG_LENGTH,
     };
 
-    const ciphertext = await crypto.subtle.encrypt(
-      params,
-      key.key,
-      plaintext
-    );
+    const ciphertext = await crypto.subtle.encrypt(params, key.key, plaintext);
 
     const result: EncryptedData = {
       ciphertext: new Uint8Array(ciphertext),
@@ -199,11 +195,7 @@ export async function decrypt(
       tagLength: DEFAULT_TAG_LENGTH,
     };
 
-    const plaintext = await crypto.subtle.decrypt(
-      params,
-      key.key,
-      encrypted.ciphertext
-    );
+    const plaintext = await crypto.subtle.decrypt(params, key.key, encrypted.ciphertext);
 
     return {
       success: true,

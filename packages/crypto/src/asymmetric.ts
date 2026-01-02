@@ -7,13 +7,7 @@
  * @module asymmetric
  */
 
-import type {
-  RsaKeyPair,
-  RsaKeyGenParams,
-  RsaOaepParams,
-  CryptoResult,
-  HashAlgorithm,
-} from "./types.js";
+import type { HashAlgorithm, RsaKeyGenParams, RsaKeyPair, RsaOaepParams } from "./types.js";
 
 /**
  * Default RSA key generation parameters
@@ -40,7 +34,7 @@ const DEFAULT_RSA_PARAMS = {
  */
 export async function generateRsaKeyPair(
   modulusLength: 2048 | 3072 | 4096 = DEFAULT_RSA_PARAMS.modulusLength,
-  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash,
+  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash
 ): Promise<RsaKeyPair> {
   try {
     const algorithm: RsaKeyGenParams = {
@@ -53,7 +47,7 @@ export async function generateRsaKeyPair(
     const cryptoKeyPair = await crypto.subtle.generateKey(
       algorithm,
       true, // extractable
-      ["encrypt", "decrypt"],
+      ["encrypt", "decrypt"]
     );
 
     return {
@@ -64,7 +58,7 @@ export async function generateRsaKeyPair(
     };
   } catch (error) {
     throw new Error(
-      `Failed to generate RSA key pair: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to generate RSA key pair: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -95,7 +89,7 @@ export async function generateRsaKeyPair(
 export async function encryptWithPublicKey(
   publicKey: CryptoKey,
   data: Uint8Array,
-  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash,
+  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash
 ): Promise<Uint8Array> {
   try {
     const algorithm: RsaOaepParams = {
@@ -103,16 +97,12 @@ export async function encryptWithPublicKey(
       hash,
     };
 
-    const ciphertext = await crypto.subtle.encrypt(
-      algorithm,
-      publicKey,
-      data,
-    );
+    const ciphertext = await crypto.subtle.encrypt(algorithm, publicKey, data);
 
     return new Uint8Array(ciphertext);
   } catch (error) {
     throw new Error(
-      `Failed to encrypt with public key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to encrypt with public key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -136,7 +126,7 @@ export async function encryptWithPublicKey(
 export async function decryptWithPrivateKey(
   privateKey: CryptoKey,
   ciphertext: Uint8Array,
-  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash,
+  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash
 ): Promise<Uint8Array> {
   try {
     const algorithm: RsaOaepParams = {
@@ -144,16 +134,12 @@ export async function decryptWithPrivateKey(
       hash,
     };
 
-    const plaintext = await crypto.subtle.decrypt(
-      algorithm,
-      privateKey,
-      ciphertext,
-    );
+    const plaintext = await crypto.subtle.decrypt(algorithm, privateKey, ciphertext);
 
     return new Uint8Array(plaintext);
   } catch (error) {
     throw new Error(
-      `Failed to decrypt with private key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to decrypt with private key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -177,7 +163,7 @@ export async function exportPublicKey(publicKey: CryptoKey): Promise<string> {
     return base64;
   } catch (error) {
     throw new Error(
-      `Failed to export public key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to export public key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -204,7 +190,7 @@ export async function exportPrivateKey(privateKey: CryptoKey): Promise<string> {
     return base64;
   } catch (error) {
     throw new Error(
-      `Failed to export private key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to export private key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -224,7 +210,7 @@ export async function exportPrivateKey(privateKey: CryptoKey): Promise<string> {
  */
 export async function importPublicKey(
   keyData: string,
-  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash,
+  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash
 ): Promise<CryptoKey> {
   try {
     const binaryData = Uint8Array.from(atob(keyData), (c) => c.charCodeAt(0));
@@ -237,13 +223,13 @@ export async function importPublicKey(
         hash,
       },
       true,
-      ["encrypt"],
+      ["encrypt"]
     );
 
     return publicKey;
   } catch (error) {
     throw new Error(
-      `Failed to import public key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to import public key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -263,7 +249,7 @@ export async function importPublicKey(
  */
 export async function importPrivateKey(
   keyData: string,
-  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash,
+  hash: HashAlgorithm = DEFAULT_RSA_PARAMS.hash
 ): Promise<CryptoKey> {
   try {
     const binaryData = Uint8Array.from(atob(keyData), (c) => c.charCodeAt(0));
@@ -276,13 +262,13 @@ export async function importPrivateKey(
         hash,
       },
       true,
-      ["decrypt"],
+      ["decrypt"]
     );
 
     return privateKey;
   } catch (error) {
     throw new Error(
-      `Failed to import private key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to import private key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }

@@ -7,12 +7,7 @@
  * @module ecdh
  */
 
-import type {
-  EcdhKeyPair,
-  EcKeyGenParams,
-  SharedSecret,
-  EcdhParams,
-} from "./types.js";
+import type { EcKeyGenParams, EcdhKeyPair, EcdhParams, SharedSecret } from "./types.js";
 
 /**
  * Default ECDH curve (P-256 / secp256r1)
@@ -52,7 +47,7 @@ const DEFAULT_CURVE = "P-256" as const;
  * - P-521: ~256-bit security
  */
 export async function generateEcdhKeyPair(
-  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE,
+  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE
 ): Promise<EcdhKeyPair> {
   try {
     const algorithm: EcKeyGenParams = {
@@ -63,7 +58,7 @@ export async function generateEcdhKeyPair(
     const cryptoKeyPair = await crypto.subtle.generateKey(
       algorithm,
       true, // extractable
-      ["deriveKey", "deriveBits"],
+      ["deriveKey", "deriveBits"]
     );
 
     return {
@@ -74,7 +69,7 @@ export async function generateEcdhKeyPair(
     };
   } catch (error) {
     throw new Error(
-      `Failed to generate ECDH key pair: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to generate ECDH key pair: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -105,7 +100,7 @@ export async function generateEcdhKeyPair(
  */
 export async function deriveSharedSecret(
   privateKey: CryptoKey,
-  publicKey: CryptoKey,
+  publicKey: CryptoKey
 ): Promise<SharedSecret> {
   try {
     const algorithm: EcdhParams = {
@@ -126,7 +121,7 @@ export async function deriveSharedSecret(
         length: 256,
       },
       true, // extractable
-      ["encrypt", "decrypt"],
+      ["encrypt", "decrypt"]
     );
 
     return {
@@ -136,7 +131,7 @@ export async function deriveSharedSecret(
     };
   } catch (error) {
     throw new Error(
-      `Failed to derive shared secret: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to derive shared secret: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -163,7 +158,7 @@ export async function deriveSharedSecret(
 export async function deriveSharedSecretBits(
   privateKey: CryptoKey,
   publicKey: CryptoKey,
-  length?: number,
+  length?: number
 ): Promise<Uint8Array> {
   try {
     const algorithm: EcdhParams = {
@@ -176,16 +171,12 @@ export async function deriveSharedSecretBits(
     const curve = keyAlgorithm.namedCurve;
     const defaultLength = getCurveBitLength(curve);
 
-    const bits = await crypto.subtle.deriveBits(
-      algorithm,
-      privateKey,
-      length ?? defaultLength,
-    );
+    const bits = await crypto.subtle.deriveBits(algorithm, privateKey, length ?? defaultLength);
 
     return new Uint8Array(bits);
   } catch (error) {
     throw new Error(
-      `Failed to derive shared secret bits: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to derive shared secret bits: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -202,16 +193,14 @@ export async function deriveSharedSecretBits(
  * // Share exportedKey with peer for key exchange
  * ```
  */
-export async function exportEcdhPublicKey(
-  publicKey: CryptoKey,
-): Promise<string> {
+export async function exportEcdhPublicKey(publicKey: CryptoKey): Promise<string> {
   try {
     const exported = await crypto.subtle.exportKey("raw", publicKey);
     const base64 = btoa(String.fromCharCode(...new Uint8Array(exported)));
     return base64;
   } catch (error) {
     throw new Error(
-      `Failed to export ECDH public key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to export ECDH public key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -231,16 +220,14 @@ export async function exportEcdhPublicKey(
  * @security
  * Private keys should be encrypted before storage
  */
-export async function exportEcdhPrivateKey(
-  privateKey: CryptoKey,
-): Promise<string> {
+export async function exportEcdhPrivateKey(privateKey: CryptoKey): Promise<string> {
   try {
     const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
     const base64 = btoa(String.fromCharCode(...new Uint8Array(exported)));
     return base64;
   } catch (error) {
     throw new Error(
-      `Failed to export ECDH private key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to export ECDH private key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -263,7 +250,7 @@ export async function exportEcdhPrivateKey(
  */
 export async function importEcdhPublicKey(
   keyData: string,
-  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE,
+  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE
 ): Promise<CryptoKey> {
   try {
     const binaryData = Uint8Array.from(atob(keyData), (c) => c.charCodeAt(0));
@@ -276,13 +263,13 @@ export async function importEcdhPublicKey(
         namedCurve: curve,
       },
       true,
-      [],
+      []
     );
 
     return publicKey;
   } catch (error) {
     throw new Error(
-      `Failed to import ECDH public key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to import ECDH public key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -305,7 +292,7 @@ export async function importEcdhPublicKey(
  */
 export async function importEcdhPrivateKey(
   keyData: string,
-  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE,
+  curve: "P-256" | "P-384" | "P-521" = DEFAULT_CURVE
 ): Promise<CryptoKey> {
   try {
     const binaryData = Uint8Array.from(atob(keyData), (c) => c.charCodeAt(0));
@@ -318,13 +305,13 @@ export async function importEcdhPrivateKey(
         namedCurve: curve,
       },
       true,
-      ["deriveKey", "deriveBits"],
+      ["deriveKey", "deriveBits"]
     );
 
     return privateKey;
   } catch (error) {
     throw new Error(
-      `Failed to import ECDH private key: ${error instanceof Error ? error.message : "Unknown error"}`,
+      `Failed to import ECDH private key: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }

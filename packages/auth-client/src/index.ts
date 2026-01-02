@@ -1,9 +1,5 @@
+import { organizationClient, passkeyClient, twoFactorClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
-import {
-  organizationClient,
-  twoFactorClient,
-  passkeyClient,
-} from "better-auth/client/plugins";
 
 export function createCaesarAuthClient(baseURL: string) {
   return createAuthClient({
