@@ -39,5 +39,12 @@ export type {
   CryptoResult,
 } from "./types.js";
 
-// Placeholder for future implementations
-// Actual crypto functions will be added in subsequent issues (#85-87)
+// ============================================================================
+// Key Derivation (Scrypt)
+// ============================================================================
+
+export {
+  deriveKey,
+  deriveKeyWithMetadata,
+  DEFAULT_SCRYPT_PARAMS,
+} from "./scrypt.js";
