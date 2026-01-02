@@ -1,0 +1,53 @@
+{
+  "project": {
+    "name": "caesar-app",
+    "description": "Caesar Application - Next.js + ZenStack + Better Auth + tRPC",
+    "stack": ["nextjs", "zenstack", "better-auth", "trpc", "prisma", "typescript"]
+  },
+  "gitea": {
+    "url": "${GITEA_URL}",
+    "owner": "${GITEA_OWNER}",
+    "repo": "caesar-app"
+  },
+  "agents": {
+    "enabled": true,
+    "configDir": ".claude/agents",
+    "orchestrator": "pm",
+    "team": ["pm", "frontend", "backend", "devops", "qa"]
+  },
+  "skills": {
+    "sources": [
+      "~/.claude/plugins/marketplaces/skills-marketplace",
+      "~/.claude/plugins/marketplaces/wshobson-agents",
+      "~/.claude/plugins/marketplaces/claudekit-skills"
+    ],
+    "enabled": [
+      "zenstack",
+      "better-auth",
+      "research-guide",
+      "docs-seeker",
+      "nextjs-expert",
+      "trpc-expert",
+      "prisma-expert"
+    ]
+  },
+  "subagents": {
+    "enabled": true,
+    "configDir": "~/.claude/agents",
+    "available": [
+      "nextjs-expert",
+      "react-expert",
+      "trpc-expert",
+      "prisma-expert",
+      "typescript-expert",
+      "vitest-expert",
+      "playwright-expert"
+    ]
+  },
+  "labelRouting": {
+    "frontend": ["frontend", "ui", "react", "nextjs", "component"],
+    "backend": ["backend", "api", "database", "auth", "trpc", "zenstack"],
+    "devops": ["devops", "ci", "cd", "docker", "deploy", "infra"],
+    "qa": ["qa", "testing", "test", "review", "bug"]
+  }
+}

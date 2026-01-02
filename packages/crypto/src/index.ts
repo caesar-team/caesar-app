@@ -58,3 +58,31 @@ export {
   encrypt,
   decrypt,
 } from "./symmetric.js";
+
+// ============================================================================
+// Asymmetric Encryption (RSA-OAEP)
+// ============================================================================
+
+export {
+  generateRsaKeyPair,
+  encryptWithPublicKey,
+  decryptWithPrivateKey,
+  exportPublicKey,
+  exportPrivateKey,
+  importPublicKey,
+  importPrivateKey,
+} from "./asymmetric.js";
+
+// ============================================================================
+// Elliptic Curve Diffie-Hellman (ECDH)
+// ============================================================================
+
+export {
+  generateEcdhKeyPair,
+  deriveSharedSecret,
+  deriveSharedSecretBits,
+  exportEcdhPublicKey,
+  exportEcdhPrivateKey,
+  importEcdhPublicKey,
+  importEcdhPrivateKey,
+} from "./ecdh.js";
