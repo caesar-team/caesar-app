@@ -39,5 +39,24 @@ export type {
   CryptoResult,
 } from "./types.js";
 
-// Placeholder for future implementations
-// Actual crypto functions will be added in subsequent issues (#85-87)
+// Export asymmetric encryption functions (RSA-OAEP)
+export {
+  generateRsaKeyPair,
+  encryptWithPublicKey,
+  decryptWithPrivateKey,
+  exportPublicKey,
+  exportPrivateKey,
+  importPublicKey,
+  importPrivateKey,
+} from "./asymmetric.js";
+
+// Export ECDH key exchange functions
+export {
+  generateEcdhKeyPair,
+  deriveSharedSecret,
+  deriveSharedSecretBits,
+  exportEcdhPublicKey,
+  exportEcdhPrivateKey,
+  importEcdhPublicKey,
+  importEcdhPrivateKey,
+} from "./ecdh.js";
