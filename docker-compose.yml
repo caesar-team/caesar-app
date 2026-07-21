@@ -1,0 +1,19 @@
+services:
+  link:
+    build:
+      context: .
+      dockerfile: apps/link/server/Dockerfile
+    ports:
+      - "${LINK_PORT:-3000}:3000"
+    environment:
+      PORT: "3000"
+      DATA_DIR: /data
+      MAX_BLOB_SIZE: "104857600"
+      RATE_LIMIT_MAX: "30"
+      RATE_LIMIT_WINDOW_MS: "3600000"
+      MAX_TTL: "2592000"
+    volumes:
+      - link-data:/data
+    restart: unless-stopped
+volumes:
+  link-data:
