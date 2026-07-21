@@ -14,3 +14,13 @@ export interface SealedBlob {
 }
 
 export const ENVELOPE_VERSION = 1;
+
+export interface KdfMeta {
+  kdf: "scrypt";
+  /** base64url, 16 bytes */
+  salt: string;
+  N: number;
+  r: number;
+  p: number;
+  dkLen: number;
+}

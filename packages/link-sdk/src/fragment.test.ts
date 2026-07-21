@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { generateKey } from "@caesar/crypto";
-import { decodeFragment, encodeKeyFragment } from "./fragment.js";
+import {
+  decodeFragment,
+  encodeKeyFragment,
+  encodePasswordFragment,
+  unwrapPasswordFragment,
+} from "./fragment.js";
 
 async function freshKey() {
   const result = await generateKey();
@@ -24,4 +29,28 @@ describe("fragment k. mode", () => {
     await expect(decodeFragment("x.abc")).rejects.toThrow();
     await expect(decodeFragment("k.tooshort")).rejects.toThrow();
   });
+});
+
+describe("fragment p. mode", () => {
+  // scrypt N=2^17 takes ~1s per derivation — keep the password fixed, derive sparingly
+  test("wraps and unwraps the DEK with a password", async () => {
+    const dek = await freshKey();
+    const { fragment, kdf } = await encodePasswordFragment(dek, "correct horse");
+    expect(fragment).toMatch(/^p\.[A-Za-z0-9_-]+$/);
+    expect(kdf.kdf).toBe("scrypt");
+    const decoded = await decodeFragment(fragment);
+    if (decoded.mode !== "password") throw new Error("expected password mode");
+    const unwrapped = await unwrapPasswordFragment(decoded.wrapped, "correct horse", kdf);
+    const rawA = await crypto.subtle.exportKey("raw", dek.key);
+    const rawB = await crypto.subtle.exportKey("raw", unwrapped.key);
+    expect(new Uint8Array(rawB)).toEqual(new Uint8Array(rawA));
+  }, 30000);
+
+  test("fails with the wrong password", async () => {
+    const dek = await freshKey();
+    const { fragment, kdf } = await encodePasswordFragment(dek, "правильный пароль");
+    const decoded = await decodeFragment(fragment);
+    if (decoded.mode !== "password") throw new Error("expected password mode");
+    await expect(unwrapPasswordFragment(decoded.wrapped, "wrong", kdf)).rejects.toThrow();
+  }, 30000);
 });
