@@ -84,10 +84,16 @@ async function deriveKek(password: string, saltB64: string, params: KdfMeta): Pr
 
 export async function encodePasswordFragment(
   dek: SymmetricKey,
-  password: string
+  password: string,
+  params?: Partial<Pick<KdfMeta, "N" | "r" | "p">>
 ): Promise<{ fragment: string; kdf: KdfMeta }> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-  const kdf: KdfMeta = { kdf: "scrypt", salt: toBase64Url(salt), ...DEFAULT_SCRYPT_PARAMS };
+  const kdf: KdfMeta = {
+    kdf: "scrypt",
+    salt: toBase64Url(salt),
+    ...DEFAULT_SCRYPT_PARAMS,
+    ...params,
+  };
   const kek = await deriveKek(password, kdf.salt, kdf);
   const rawDek = new Uint8Array(await crypto.subtle.exportKey("raw", dek.key));
   const result = await encrypt(kek, rawDek);

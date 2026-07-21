@@ -54,6 +54,18 @@ describe("fragment p. mode", () => {
     await expect(unwrapPasswordFragment(decoded.wrapped, "wrong", kdf)).rejects.toThrow();
   }, 30000);
 
+  test("honors custom scrypt params and still roundtrips", async () => {
+    const dek = await freshKey();
+    const { fragment, kdf } = await encodePasswordFragment(dek, "fast vector pw", { N: 16384 });
+    expect(kdf.N).toBe(16384);
+    const decoded = await decodeFragment(fragment);
+    if (decoded.mode !== "password") throw new Error("expected password mode");
+    const unwrapped = await unwrapPasswordFragment(decoded.wrapped, "fast vector pw", kdf);
+    const rawA = await crypto.subtle.exportKey("raw", dek.key);
+    const rawB = await crypto.subtle.exportKey("raw", unwrapped.key);
+    expect(new Uint8Array(rawB)).toEqual(new Uint8Array(rawA));
+  }, 30000);
+
   test("rejects an untrusted KdfMeta with an out-of-bounds scrypt N (fail fast, no DoS)", async () => {
     // A malicious server could return a huge N to exhaust the recipient's memory
     // during scrypt. The bound must reject BEFORE any derivation is attempted.

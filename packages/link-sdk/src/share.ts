@@ -16,14 +16,18 @@ export interface ShareBundle {
 
 export async function createShare(
   payload: SharePayload,
-  options: { password?: string } = {}
+  options: { password?: string; kdfParams?: Partial<Pick<KdfMeta, "N" | "r" | "p">> } = {}
 ): Promise<ShareBundle> {
   const keyResult = await generateKey();
   if (!keyResult.success) throw new Error(keyResult.error.message);
   const dek = keyResult.data;
   const blob = await sealEnvelope(payload, dek);
   if (options.password !== undefined) {
-    const { fragment, kdf } = await encodePasswordFragment(dek, options.password);
+    const { fragment, kdf } = await encodePasswordFragment(
+      dek,
+      options.password,
+      options.kdfParams
+    );
     return { blob, fragment, kdf };
   }
   return { blob, fragment: await encodeKeyFragment(dek) };
