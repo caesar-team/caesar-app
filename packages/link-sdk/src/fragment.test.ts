@@ -53,4 +53,17 @@ describe("fragment p. mode", () => {
     if (decoded.mode !== "password") throw new Error("expected password mode");
     await expect(unwrapPasswordFragment(decoded.wrapped, "wrong", kdf)).rejects.toThrow();
   }, 30000);
+
+  test("rejects an untrusted KdfMeta with an out-of-bounds scrypt N (fail fast, no DoS)", async () => {
+    // A malicious server could return a huge N to exhaust the recipient's memory
+    // during scrypt. The bound must reject BEFORE any derivation is attempted.
+    const dek = await freshKey();
+    const { fragment, kdf } = await encodePasswordFragment(dek, "pw");
+    const decoded = await decodeFragment(fragment);
+    if (decoded.mode !== "password") throw new Error("expected password mode");
+    const hostileKdf = { ...kdf, N: 2 ** 30 };
+    await expect(
+      unwrapPasswordFragment(decoded.wrapped, "pw", hostileKdf)
+    ).rejects.toThrow(/N out of bounds/);
+  }, 30000);
 });

@@ -5,6 +5,35 @@ import type { KdfMeta } from "./types.js";
 const DEK_LENGTH = 32;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
+const GCM_TAG_LENGTH = 16;
+const WRAPPED_DEK_LENGTH = DEK_LENGTH + GCM_TAG_LENGTH;
+
+/**
+ * Upper bound on the scrypt cost parameter accepted from untrusted KdfMeta.
+ * In the zero-knowledge model the server is untrusted; without a ceiling a
+ * malicious KdfMeta.N could force a multi-GB scrypt allocation and crash the
+ * recipient's browser before any decryption is attempted. 2^20 stays well
+ * above the honest default (2^17) while capping memory at ~1 GB.
+ */
+const MAX_SCRYPT_N = 2 ** 20;
+
+/**
+ * Validates scrypt parameters supplied by the (untrusted) server so a crafted
+ * KdfMeta fails fast with a thrown error rather than exhausting client memory.
+ */
+function assertSaneKdf(kdf: KdfMeta): void {
+  if (kdf.kdf !== "scrypt") throw new Error(`Unsupported KDF: ${kdf.kdf}`);
+  if (kdf.dkLen !== DEK_LENGTH) throw new Error(`Unsupported scrypt dkLen: ${kdf.dkLen}`);
+  if (!Number.isInteger(kdf.N) || kdf.N < 2 || kdf.N > MAX_SCRYPT_N) {
+    throw new Error(`scrypt N out of bounds: ${kdf.N}`);
+  }
+  if (!Number.isInteger(kdf.r) || kdf.r < 1 || kdf.r > 32) {
+    throw new Error(`scrypt r out of bounds: ${kdf.r}`);
+  }
+  if (!Number.isInteger(kdf.p) || kdf.p < 1 || kdf.p > 16) {
+    throw new Error(`scrypt p out of bounds: ${kdf.p}`);
+  }
+}
 
 export type DecodedFragment =
   | { mode: "key"; dek: SymmetricKey }
@@ -33,13 +62,16 @@ export async function decodeFragment(fragment: string): Promise<DecodedFragment>
     return { mode: "key", dek: await importDek(body) };
   }
   if (mode === "p") {
-    if (body.length !== IV_LENGTH + 48) throw new Error("Malformed fragment: bad wrapped DEK length");
+    if (body.length !== IV_LENGTH + WRAPPED_DEK_LENGTH) {
+      throw new Error("Malformed fragment: bad wrapped DEK length");
+    }
     return { mode: "password", wrapped: body };
   }
   throw new Error(`Malformed fragment: unknown mode "${mode}"`);
 }
 
 async function deriveKek(password: string, saltB64: string, params: KdfMeta): Promise<SymmetricKey> {
+  assertSaneKdf(params);
   const salt = fromBase64Url(saltB64);
   const key = await deriveKey(password, salt, {
     N: params.N,
