@@ -56,9 +56,7 @@ export class ShareStore {
         created_at        INTEGER NOT NULL
       );
     `);
-    this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_shares_expires ON shares(expires_at);",
-    );
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_shares_expires ON shares(expires_at);");
   }
 
   private blobPath(id: string): string {
@@ -112,16 +110,14 @@ export class ShareStore {
         input.views,
         sha256hex(deleteToken),
         input.now,
-      ],
+      ]
     );
 
     return { id, deleteToken };
   }
 
   getMeta(id: string, now: number): ShareRecord | null {
-    const row = this.db
-      .query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?")
-      .get(id);
+    const row = this.db.query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?").get(id);
     if (!row) {
       return null;
     }
@@ -146,9 +142,7 @@ export class ShareStore {
     // leave a live row pointing at an already-deleted file.
     let blobToDelete: string | null = null;
     const consume = this.db.transaction((): Uint8Array | null => {
-      const row = this.db
-        .query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?")
-        .get(id);
+      const row = this.db.query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?").get(id);
       if (!row) {
         return null;
       }
@@ -174,10 +168,7 @@ export class ShareStore {
         this.db.run("DELETE FROM shares WHERE id = ?", [row.id]);
         blobToDelete = row.blob_path;
       } else {
-        this.db.run("UPDATE shares SET views_left = ? WHERE id = ?", [
-          next,
-          row.id,
-        ]);
+        this.db.run("UPDATE shares SET views_left = ? WHERE id = ?", [next, row.id]);
       }
       return bytes;
     });
@@ -190,9 +181,7 @@ export class ShareStore {
   }
 
   remove(id: string, deleteToken: string): boolean {
-    const row = this.db
-      .query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?")
-      .get(id);
+    const row = this.db.query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?").get(id);
     if (!row) {
       return false;
     }
@@ -206,7 +195,7 @@ export class ShareStore {
   sweep(now: number): number {
     const rows = this.db
       .query<Pick<ShareRow, "id" | "blob_path">, [number]>(
-        "SELECT id, blob_path FROM shares WHERE expires_at <= ?",
+        "SELECT id, blob_path FROM shares WHERE expires_at <= ?"
       )
       .all(now);
     for (const row of rows) {

@@ -35,7 +35,7 @@ afterEach(() => {
 describe("ShareStore", () => {
   test("create then getMeta returns the record", () => {
     const { id, deleteToken } = store.create(
-      makeInput({ views: 5, meta: JSON.stringify({ iv: "xyz" }) }),
+      makeInput({ views: 5, meta: JSON.stringify({ iv: "xyz" }) })
     );
     expect(id).toBeString();
     expect(deleteToken).toBeString();
@@ -53,9 +53,7 @@ describe("ShareStore", () => {
   });
 
   test("one-time share: first consume returns bytes, second returns null and cleans up", () => {
-    const { id } = store.create(
-      makeInput({ views: 1, blob: new Uint8Array([9, 8, 7]) }),
-    );
+    const { id } = store.create(makeInput({ views: 1, blob: new Uint8Array([9, 8, 7]) }));
     const blobPath = join(dataDir, "blobs", id);
     expect(existsSync(blobPath)).toBe(true);
 
@@ -70,9 +68,7 @@ describe("ShareStore", () => {
   });
 
   test("multi-view share: consumes down to zero then cleans up", () => {
-    const { id } = store.create(
-      makeInput({ views: 2, blob: new Uint8Array([5, 5]) }),
-    );
+    const { id } = store.create(makeInput({ views: 2, blob: new Uint8Array([5, 5]) }));
     const blobPath = join(dataDir, "blobs", id);
 
     expect(store.consumeBlob(id, NOW)).not.toBeNull();
@@ -94,9 +90,7 @@ describe("ShareStore", () => {
   });
 
   test("unlimited share: consume many times always returns bytes", () => {
-    const { id } = store.create(
-      makeInput({ views: null, blob: new Uint8Array([42]) }),
-    );
+    const { id } = store.create(makeInput({ views: null, blob: new Uint8Array([42]) }));
     for (let i = 0; i < 5; i++) {
       const bytes = store.consumeBlob(id, NOW);
       expect(bytes).not.toBeNull();

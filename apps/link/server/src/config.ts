@@ -8,11 +8,7 @@ export interface Config {
   maxTtl: number;
 }
 
-function parseIntEnv(
-  value: string | undefined,
-  name: string,
-  fallback: number,
-): number {
+function parseIntEnv(value: string | undefined, name: string, fallback: number): number {
   if (value === undefined) {
     return fallback;
   }
@@ -29,11 +25,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     dataDir: env.DATA_DIR ?? "./data",
     maxBlobSize: parseIntEnv(env.MAX_BLOB_SIZE, "MAX_BLOB_SIZE", 104857600),
     rateLimitMax: parseIntEnv(env.RATE_LIMIT_MAX, "RATE_LIMIT_MAX", 30),
-    rateLimitWindowMs: parseIntEnv(
-      env.RATE_LIMIT_WINDOW_MS,
-      "RATE_LIMIT_WINDOW_MS",
-      3600000,
-    ),
+    rateLimitWindowMs: parseIntEnv(env.RATE_LIMIT_WINDOW_MS, "RATE_LIMIT_WINDOW_MS", 3600000),
     minTtl: 60,
     maxTtl: parseIntEnv(env.MAX_TTL, "MAX_TTL", 2592000),
   };
