@@ -3,20 +3,14 @@
 FROM oven/bun:1.2.20 AS base
 WORKDIR /app
 
-# The server (@caesar/link-server) has NO @caesar/* runtime dependency — it only
-# uses hono, hono-rate-limiter, nanoid and Bun built-ins. So we keep the copy
-# minimal: the root manifests + this one workspace package. No packages/ copy is
-# needed for the production runtime install.
-COPY package.json bun.lock ./
-COPY apps/link/server/package.json apps/link/server/package.json
+# This is a Bun workspace: `bun install --frozen-lockfile` validates the WHOLE
+# workspace graph against bun.lock, so a partial copy fails. We copy the full
+# context (the .dockerignore at the repo root trims node_modules, dist, tests,
+# data, .git, .worktrees), then install. The server itself has no @caesar/*
+# runtime dependency, but the frozen lockfile still needs every member present.
+COPY . .
 
-# Try a frozen, production-only install first. The frozen check can fail because
-# the lockfile describes the whole workspace while we only copied a slice of it;
-# fall back to a non-frozen production install in that case.
-RUN bun install --frozen-lockfile --production || bun install --production
-
-# App source (src/main.ts is the entrypoint; Bun runs TypeScript directly).
-COPY apps/link/server ./apps/link/server
+RUN bun install --frozen-lockfile --production
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
