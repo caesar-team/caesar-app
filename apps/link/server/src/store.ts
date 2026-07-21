@@ -80,6 +80,17 @@ export class ShareStore {
     this.deleteBlobFile(blobPath);
   }
 
+  private readBlobOrNull(path: string): Uint8Array | null {
+    try {
+      return readFileSync(path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw err;
+    }
+  }
+
   create(input: CreateInput): { id: string; deleteToken: string } {
     const id = nanoid();
     const deleteToken = nanoid();
@@ -129,6 +140,11 @@ export class ShareStore {
   }
 
   consumeBlob(id: string, now: number): Uint8Array | null {
+    // The DB mutations run inside a transaction (so concurrent last-view reads
+    // can't double-spend); the blob unlink is deferred until AFTER commit, since
+    // filesystem ops aren't transactional — a crash mid-transaction must never
+    // leave a live row pointing at an already-deleted file.
+    let blobToDelete: string | null = null;
     const consume = this.db.transaction((): Uint8Array | null => {
       const row = this.db
         .query<ShareRow, [string]>("SELECT * FROM shares WHERE id = ?")
@@ -137,18 +153,26 @@ export class ShareStore {
         return null;
       }
       if (row.expires_at <= now || row.views_left === 0) {
-        this.deleteRowAndFile(row.id, row.blob_path);
+        this.db.run("DELETE FROM shares WHERE id = ?", [row.id]);
+        blobToDelete = row.blob_path;
         return null;
       }
 
-      const bytes = readFileSync(row.blob_path);
+      // A missing file under a live row is an inconsistency; treat as gone.
+      const bytes = this.readBlobOrNull(row.blob_path);
+      if (bytes === null) {
+        this.db.run("DELETE FROM shares WHERE id = ?", [row.id]);
+        blobToDelete = row.blob_path;
+        return null;
+      }
 
       if (row.views_left === null) {
         return bytes;
       }
       const next = row.views_left - 1;
       if (next === 0) {
-        this.deleteRowAndFile(row.id, row.blob_path);
+        this.db.run("DELETE FROM shares WHERE id = ?", [row.id]);
+        blobToDelete = row.blob_path;
       } else {
         this.db.run("UPDATE shares SET views_left = ? WHERE id = ?", [
           next,
@@ -158,7 +182,11 @@ export class ShareStore {
       return bytes;
     });
 
-    return consume();
+    const result = consume();
+    if (blobToDelete !== null) {
+      this.deleteBlobFile(blobToDelete);
+    }
+    return result;
   }
 
   remove(id: string, deleteToken: string): boolean {

@@ -69,6 +69,30 @@ describe("ShareStore", () => {
     expect(existsSync(blobPath)).toBe(false);
   });
 
+  test("multi-view share: consumes down to zero then cleans up", () => {
+    const { id } = store.create(
+      makeInput({ views: 2, blob: new Uint8Array([5, 5]) }),
+    );
+    const blobPath = join(dataDir, "blobs", id);
+
+    expect(store.consumeBlob(id, NOW)).not.toBeNull();
+    expect(store.getMeta(id, NOW)?.viewsLeft).toBe(1); // decremented, not deleted
+    expect(existsSync(blobPath)).toBe(true);
+
+    expect(store.consumeBlob(id, NOW)).not.toBeNull(); // last view
+    expect(store.getMeta(id, NOW)).toBeNull();
+    expect(existsSync(blobPath)).toBe(false);
+  });
+
+  test("orphaned row (blob file missing) is treated as gone, not a crash", () => {
+    const { id } = store.create(makeInput({ views: 5 }));
+    // Simulate a filesystem inconsistency: row exists, blob file removed.
+    rmSync(join(dataDir, "blobs", id), { force: true });
+    expect(store.consumeBlob(id, NOW)).toBeNull();
+    // the inconsistent row is cleaned up
+    expect(store.getMeta(id, NOW)).toBeNull();
+  });
+
   test("unlimited share: consume many times always returns bytes", () => {
     const { id } = store.create(
       makeInput({ views: null, blob: new Uint8Array([42]) }),
