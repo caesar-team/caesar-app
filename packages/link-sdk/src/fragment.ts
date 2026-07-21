@@ -34,7 +34,12 @@ const MAX_SCRYPT_MEMORY_BYTES = 2 ** 30;
 function assertSaneKdf(kdf: KdfMeta): void {
   if (kdf.kdf !== "scrypt") throw new Error(`Unsupported KDF: ${kdf.kdf}`);
   if (kdf.dkLen !== DEK_LENGTH) throw new Error(`Unsupported scrypt dkLen: ${kdf.dkLen}`);
-  if (!Number.isInteger(kdf.N) || kdf.N < 2 || kdf.N > MAX_SCRYPT_N || (kdf.N & (kdf.N - 1)) !== 0) {
+  if (
+    !Number.isInteger(kdf.N) ||
+    kdf.N < 2 ||
+    kdf.N > MAX_SCRYPT_N ||
+    (kdf.N & (kdf.N - 1)) !== 0
+  ) {
     throw new Error(`scrypt N out of bounds: ${kdf.N}`);
   }
   if (!Number.isInteger(kdf.r) || kdf.r < 1 || kdf.r > 32) {
