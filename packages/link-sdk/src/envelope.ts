@@ -1,4 +1,4 @@
-import { decrypt, encrypt, type SymmetricKey } from "@caesar/crypto";
+import { type SymmetricKey, decrypt, encrypt } from "@caesar/crypto";
 import { fromBase64Url, toBase64Url } from "./base64url.js";
 import { ENVELOPE_VERSION, type SealedBlob, type SharePayload } from "./types.js";
 
@@ -25,7 +25,11 @@ export async function sealEnvelope(payload: SharePayload, dek: SymmetricKey): Pr
 }
 
 export async function openEnvelope(blob: SealedBlob, dek: SymmetricKey): Promise<SharePayload> {
-  const result = await decrypt(dek, { ciphertext: blob.ciphertext, iv: blob.iv, algorithm: "AES-GCM" });
+  const result = await decrypt(dek, {
+    ciphertext: blob.ciphertext,
+    iv: blob.iv,
+    algorithm: "AES-GCM",
+  });
   if (!result.success) throw new Error(`Envelope decryption failed: ${result.error.message}`);
   const wire = JSON.parse(new TextDecoder().decode(result.data)) as EnvelopeWire;
   if (wire.v !== ENVELOPE_VERSION) throw new Error(`Unsupported envelope version: ${wire.v}`);

@@ -74,8 +74,8 @@ describe("fragment p. mode", () => {
     const decoded = await decodeFragment(fragment);
     if (decoded.mode !== "password") throw new Error("expected password mode");
     const hostileKdf = { ...kdf, N: 2 ** 30 };
-    await expect(
-      unwrapPasswordFragment(decoded.wrapped, "pw", hostileKdf)
-    ).rejects.toThrow(/N out of bounds/);
+    await expect(unwrapPasswordFragment(decoded.wrapped, "pw", hostileKdf)).rejects.toThrow(
+      /N out of bounds/
+    );
   }, 30000);
 });

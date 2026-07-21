@@ -32,7 +32,10 @@ describe("envelope", () => {
   });
 
   test("fails with a wrong key", async () => {
-    const sealed = await sealEnvelope({ type: "text", data: new Uint8Array([1]) }, await freshKey());
+    const sealed = await sealEnvelope(
+      { type: "text", data: new Uint8Array([1]) },
+      await freshKey()
+    );
     await expect(openEnvelope(sealed, await freshKey())).rejects.toThrow();
   });
 

@@ -5,11 +5,7 @@ import { createShare } from "../src/share.js";
 
 const VECTOR_SCRYPT_N = 16384;
 
-async function vector(
-  name: string,
-  payload: Parameters<typeof createShare>[0],
-  password?: string
-) {
+async function vector(name: string, payload: Parameters<typeof createShare>[0], password?: string) {
   const bundle = await createShare(
     payload,
     password === undefined ? {} : { password, kdfParams: { N: VECTOR_SCRYPT_N } }
@@ -49,4 +45,5 @@ const vectors = [
 ];
 
 await Bun.write("vectors/v1.json", `${JSON.stringify({ version: 1, vectors }, null, 2)}\n`);
+// biome-ignore lint/suspicious/noConsoleLog: this is a CLI generator; stdout is its interface
 console.log(`Wrote ${vectors.length} vectors`);

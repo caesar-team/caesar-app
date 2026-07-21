@@ -1,4 +1,10 @@
-import { DEFAULT_SCRYPT_PARAMS, decrypt, deriveKey, encrypt, type SymmetricKey } from "@caesar/crypto";
+import {
+  DEFAULT_SCRYPT_PARAMS,
+  type SymmetricKey,
+  decrypt,
+  deriveKey,
+  encrypt,
+} from "@caesar/crypto";
 import { fromBase64Url, toBase64Url } from "./base64url.js";
 import type { KdfMeta } from "./types.js";
 
@@ -40,7 +46,9 @@ export type DecodedFragment =
   | { mode: "password"; wrapped: Uint8Array };
 
 async function importDek(raw: Uint8Array): Promise<SymmetricKey> {
-  const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, true, [
+  // A Uint8Array is a valid BufferSource at runtime; the cast bridges the TS lib.dom
+  // widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
+  const key = await crypto.subtle.importKey("raw", raw as BufferSource, { name: "AES-GCM" }, true, [
     "encrypt",
     "decrypt",
   ]);
@@ -70,7 +78,11 @@ export async function decodeFragment(fragment: string): Promise<DecodedFragment>
   throw new Error(`Malformed fragment: unknown mode "${mode}"`);
 }
 
-async function deriveKek(password: string, saltB64: string, params: KdfMeta): Promise<SymmetricKey> {
+async function deriveKek(
+  password: string,
+  saltB64: string,
+  params: KdfMeta
+): Promise<SymmetricKey> {
   assertSaneKdf(params);
   const salt = fromBase64Url(saltB64);
   const key = await deriveKey(password, salt, {
