@@ -47,4 +47,15 @@ describe("envelope", () => {
       openEnvelope({ ciphertext: enc.data.ciphertext, iv: enc.data.iv }, dek)
     ).rejects.toThrow(/version/i);
   });
+
+  test("rejects a malformed but authenticated payload (fail closed)", async () => {
+    const dek = await freshKey();
+    const { encrypt } = await import("@caesar/crypto");
+    const bogus = new TextEncoder().encode(JSON.stringify({ v: 1, type: "evil", data: "" }));
+    const enc = await encrypt(dek, bogus);
+    if (!enc.success) throw new Error("encrypt failed");
+    await expect(
+      openEnvelope({ ciphertext: enc.data.ciphertext, iv: enc.data.iv }, dek)
+    ).rejects.toThrow(/unknown type/i);
+  });
 });

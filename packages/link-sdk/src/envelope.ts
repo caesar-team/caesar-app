@@ -29,6 +29,10 @@ export async function openEnvelope(blob: SealedBlob, dek: SymmetricKey): Promise
   if (!result.success) throw new Error(`Envelope decryption failed: ${result.error.message}`);
   const wire = JSON.parse(new TextDecoder().decode(result.data)) as EnvelopeWire;
   if (wire.v !== ENVELOPE_VERSION) throw new Error(`Unsupported envelope version: ${wire.v}`);
+  if (wire.type !== "text" && wire.type !== "file") {
+    throw new Error(`Malformed envelope: unknown type "${wire.type}"`);
+  }
+  if (typeof wire.data !== "string") throw new Error("Malformed envelope: missing data field");
   return {
     type: wire.type,
     ...(wire.name !== undefined && { name: wire.name }),
