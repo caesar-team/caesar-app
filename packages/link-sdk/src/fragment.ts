@@ -14,14 +14,18 @@ const IV_LENGTH = 12;
 const GCM_TAG_LENGTH = 16;
 const WRAPPED_DEK_LENGTH = DEK_LENGTH + GCM_TAG_LENGTH;
 
-/**
- * Upper bound on the scrypt cost parameter accepted from untrusted KdfMeta.
- * In the zero-knowledge model the server is untrusted; without a ceiling a
- * malicious KdfMeta.N could force a multi-GB scrypt allocation and crash the
- * recipient's browser before any decryption is attempted. 2^20 stays well
- * above the honest default (2^17) while capping memory at ~1 GB.
- */
+/** Absolute sanity ceiling on the scrypt cost parameter N (must also be a power of two). */
 const MAX_SCRYPT_N = 2 ** 20;
+
+/**
+ * Ceiling on scrypt's working-memory footprint, ≈ 128 * N * r bytes. In the
+ * zero-knowledge model the server is untrusted; a crafted KdfMeta could pick
+ * in-range-but-hostile factors (e.g. N=2^20, r=32 ≈ 4 GiB) to OOM the
+ * recipient's tab before any decryption runs. Bounding the *product* — not
+ * each factor alone — caps memory at 1 GiB while leaving the honest default
+ * (N=2^17, r=8 ≈ 128 MiB) ample headroom.
+ */
+const MAX_SCRYPT_MEMORY_BYTES = 2 ** 30;
 
 /**
  * Validates scrypt parameters supplied by the (untrusted) server so a crafted
@@ -30,7 +34,7 @@ const MAX_SCRYPT_N = 2 ** 20;
 function assertSaneKdf(kdf: KdfMeta): void {
   if (kdf.kdf !== "scrypt") throw new Error(`Unsupported KDF: ${kdf.kdf}`);
   if (kdf.dkLen !== DEK_LENGTH) throw new Error(`Unsupported scrypt dkLen: ${kdf.dkLen}`);
-  if (!Number.isInteger(kdf.N) || kdf.N < 2 || kdf.N > MAX_SCRYPT_N) {
+  if (!Number.isInteger(kdf.N) || kdf.N < 2 || kdf.N > MAX_SCRYPT_N || (kdf.N & (kdf.N - 1)) !== 0) {
     throw new Error(`scrypt N out of bounds: ${kdf.N}`);
   }
   if (!Number.isInteger(kdf.r) || kdf.r < 1 || kdf.r > 32) {
@@ -38,6 +42,9 @@ function assertSaneKdf(kdf: KdfMeta): void {
   }
   if (!Number.isInteger(kdf.p) || kdf.p < 1 || kdf.p > 16) {
     throw new Error(`scrypt p out of bounds: ${kdf.p}`);
+  }
+  if (128 * kdf.N * kdf.r > MAX_SCRYPT_MEMORY_BYTES) {
+    throw new Error(`scrypt cost too high: N=${kdf.N} r=${kdf.r} exceeds memory ceiling`);
   }
 }
 

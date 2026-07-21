@@ -78,4 +78,17 @@ describe("fragment p. mode", () => {
       /N out of bounds/
     );
   }, 30000);
+
+  test("rejects in-range-but-hostile scrypt factors on the memory product", async () => {
+    // N and r are each within their individual bounds, but 128*N*r ≈ 4 GiB.
+    // The product bound must reject before any derivation is attempted.
+    const dek = await freshKey();
+    const { fragment, kdf } = await encodePasswordFragment(dek, "pw");
+    const decoded = await decodeFragment(fragment);
+    if (decoded.mode !== "password") throw new Error("expected password mode");
+    const hostileKdf = { ...kdf, N: 2 ** 20, r: 32 };
+    await expect(unwrapPasswordFragment(decoded.wrapped, "pw", hostileKdf)).rejects.toThrow(
+      /cost too high/
+    );
+  }, 30000);
 });
