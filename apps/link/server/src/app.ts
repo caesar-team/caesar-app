@@ -1,7 +1,18 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { rateLimiter } from "hono-rate-limiter";
 import type { Config } from "./config.js";
 import type { ShareStore } from "./store.js";
+
+// Derive the client key from the first hop of X-Forwarded-For, trimmed.
+function clientKey(c: Context): string {
+  const forwarded = c.req.header("x-forwarded-for");
+  if (forwarded === undefined) {
+    return "unknown";
+  }
+  const first = forwarded.split(",")[0]?.trim();
+  return first !== undefined && first.length > 0 ? first : "unknown";
+}
 
 type FormValue = ReturnType<FormData["get"]>;
 
@@ -26,6 +37,16 @@ export function createApp(store: ShareStore, config: Config): Hono {
   const notFound = (c: Context) => c.json({ error: "Not found" }, 404);
 
   app.get("/api/health", (c) => c.json({ ok: true }));
+
+  app.post(
+    "/api/shares",
+    rateLimiter({
+      windowMs: config.rateLimitWindowMs,
+      limit: config.rateLimitMax,
+      standardHeaders: "draft-6",
+      keyGenerator: clientKey,
+    })
+  );
 
   app.post("/api/shares", async (c) => {
     const form = await c.req.formData();

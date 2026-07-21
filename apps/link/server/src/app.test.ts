@@ -215,3 +215,58 @@ describe("createApp routes", () => {
     expect(await delRes.json()).toEqual({ error: "Not found" });
   });
 });
+
+describe("POST /api/shares rate limiting", () => {
+  let rlDataDir: string;
+  let rlStore: ShareStore;
+  let rlApp: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    rlDataDir = mkdtempSync(join(tmpdir(), "link-rl-"));
+    rlStore = new ShareStore(":memory:", rlDataDir);
+    rlApp = createApp(rlStore, makeConfig({ rateLimitMax: 2 }));
+  });
+
+  afterEach(() => {
+    rlStore.close();
+    rmSync(rlDataDir, { recursive: true, force: true });
+  });
+
+  function postFrom(ip: string): Promise<Response> {
+    const form = new FormData();
+    form.set("blob", new Blob([new Uint8Array([1])]), "cipher.bin");
+    form.set("meta", JSON.stringify({ iv: "x" }));
+    form.set("ttl", "3600");
+    return rlApp.request("/api/shares", {
+      method: "POST",
+      body: form,
+      headers: { "x-forwarded-for": ip },
+    });
+  }
+
+  test("limits by x-forwarded-for: 3rd POST from same ip is 429", async () => {
+    const first = await postFrom("1.1.1.1");
+    expect(first.status).toBe(201);
+    const second = await postFrom("1.1.1.1");
+    expect(second.status).toBe(201);
+    const third = await postFrom("1.1.1.1");
+    expect(third.status).toBe(429);
+  });
+
+  test("a different x-forwarded-for keeps its own bucket", async () => {
+    await postFrom("1.1.1.1");
+    await postFrom("1.1.1.1");
+    const limited = await postFrom("1.1.1.1");
+    expect(limited.status).toBe(429);
+
+    const other = await postFrom("2.2.2.2");
+    expect(other.status).toBe(201);
+  });
+
+  test("takes the first hop of a comma-separated x-forwarded-for", async () => {
+    await postFrom("3.3.3.3, 10.0.0.1");
+    await postFrom("3.3.3.3, 10.0.0.2");
+    const limited = await postFrom("3.3.3.3, 10.0.0.3");
+    expect(limited.status).toBe(429);
+  });
+});
