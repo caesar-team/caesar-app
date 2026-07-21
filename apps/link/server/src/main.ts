@@ -11,7 +11,11 @@ const app = createApp(store, config);
 const sweepTimer = setInterval(() => store.sweep(Date.now()), HOUR_MS);
 sweepTimer.unref();
 
-Bun.serve({ port: config.port, fetch: app.fetch });
+Bun.serve({
+  port: config.port,
+  maxRequestBodySize: config.maxBlobSize + 1_048_576,
+  fetch: app.fetch,
+});
 
 // biome-ignore lint/suspicious/noConsoleLog: server startup banner
 console.log(`link-server listening on port ${config.port}`);

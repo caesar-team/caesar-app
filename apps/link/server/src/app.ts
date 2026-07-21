@@ -4,17 +4,66 @@ import { rateLimiter } from "hono-rate-limiter";
 import type { Config } from "./config.js";
 import type { ShareStore } from "./store.js";
 
-// Derive the client key from the first hop of X-Forwarded-For, trimmed.
-function clientKey(c: Context): string {
+// First (leftmost) hop of X-Forwarded-For, trimmed; empty string when absent/blank.
+function firstForwardedHop(c: Context): string {
   const forwarded = c.req.header("x-forwarded-for");
   if (forwarded === undefined) {
-    return "unknown";
+    return "";
   }
-  const first = forwarded.split(",")[0]?.trim();
-  return first !== undefined && first.length > 0 ? first : "unknown";
+  return forwarded.split(",")[0]?.trim() ?? "";
+}
+
+// Rate-limit key. Client-supplied XFF is only honored when the operator opts in
+// via trustProxy; otherwise the Bun peer IP is authoritative, falling back to
+// XFF (tests) then a shared "unknown" bucket.
+function clientKey(config: Config, c: Context): string {
+  if (config.trustProxy) {
+    const forwarded = firstForwardedHop(c);
+    if (forwarded.length > 0) {
+      return forwarded;
+    }
+  }
+
+  const server = c.env as { requestIP?: (r: Request) => { address: string } | null } | undefined;
+  const ip = server?.requestIP?.(c.req.raw)?.address;
+  if (ip) {
+    return ip;
+  }
+
+  const forwarded = firstForwardedHop(c);
+  return forwarded.length > 0 ? forwarded : "unknown";
 }
 
 type FormValue = ReturnType<FormData["get"]>;
+
+// True when the declared body size clearly exceeds the blob limit (+ multipart slack),
+// letting us reject before buffering the whole upload.
+function exceedsDeclaredSize(c: Context, config: Config): boolean {
+  const cl = Number(c.req.header("content-length"));
+  return Number.isFinite(cl) && cl > config.maxBlobSize + 4096;
+}
+
+// Returns the in-range ttl, or undefined when absent/out of range/invalid.
+function parseTtl(raw: FormValue, config: Config): number | undefined {
+  const ttl = typeof raw === "string" ? Number.parseInt(raw, 10) : Number.NaN;
+  if (!Number.isInteger(ttl) || ttl < config.minTtl || ttl > config.maxTtl) {
+    return undefined;
+  }
+  return ttl;
+}
+
+// Returns an error message when meta is oversized or non-JSON, else null.
+function metaError(meta: string, config: Config): string | null {
+  if (meta.length > config.maxMetaSize) {
+    return "meta too large";
+  }
+  try {
+    JSON.parse(meta);
+  } catch {
+    return "meta must be valid JSON";
+  }
+  return null;
+}
 
 // Returns the parsed positive int, null when absent, or undefined when invalid.
 function parseViews(raw: FormValue): number | null | undefined {
@@ -44,11 +93,15 @@ export function createApp(store: ShareStore, config: Config): Hono {
       windowMs: config.rateLimitWindowMs,
       limit: config.rateLimitMax,
       standardHeaders: "draft-6",
-      keyGenerator: clientKey,
+      keyGenerator: (c) => clientKey(config, c),
     })
   );
 
   app.post("/api/shares", async (c) => {
+    if (exceedsDeclaredSize(c, config)) {
+      return c.json({ error: "Blob too large" }, 413);
+    }
+
     const form = await c.req.formData();
 
     const blob = form.get("blob");
@@ -60,15 +113,13 @@ export function createApp(store: ShareStore, config: Config): Hono {
     if (typeof meta !== "string") {
       return c.json({ error: "Missing meta" }, 400);
     }
-    try {
-      JSON.parse(meta);
-    } catch {
-      return c.json({ error: "meta must be valid JSON" }, 400);
+    const metaErr = metaError(meta, config);
+    if (metaErr !== null) {
+      return c.json({ error: metaErr }, 400);
     }
 
-    const ttlRaw = form.get("ttl");
-    const ttl = typeof ttlRaw === "string" ? Number.parseInt(ttlRaw, 10) : Number.NaN;
-    if (!Number.isInteger(ttl) || ttl < config.minTtl || ttl > config.maxTtl) {
+    const ttl = parseTtl(form.get("ttl"), config);
+    if (ttl === undefined) {
       return c.json({ error: "ttl out of range" }, 400);
     }
 

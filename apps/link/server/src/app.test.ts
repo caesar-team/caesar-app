@@ -15,6 +15,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     rateLimitWindowMs: 3_600_000,
     minTtl: 60,
     maxTtl: 2_592_000,
+    trustProxy: false,
+    maxMetaSize: 16_384,
     ...overrides,
   };
 }
@@ -147,6 +149,33 @@ describe("createApp routes", () => {
     expect(res.status).toBe(413);
   });
 
+  test("POST meta longer than maxMetaSize returns 400", async () => {
+    const tinyMetaApp = createApp(store, makeConfig({ maxMetaSize: 8 }));
+    const form = new FormData();
+    form.set("blob", new Blob([new Uint8Array([1])]), "cipher.bin");
+    form.set("meta", JSON.stringify({ iv: "0123456789abcdef" }));
+    form.set("ttl", "3600");
+    const res = await tinyMetaApp.request("/api/shares", {
+      method: "POST",
+      body: form,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("POST with Content-Length exceeding maxBlobSize returns 413 before buffering", async () => {
+    const smallApp = createApp(store, makeConfig({ maxBlobSize: 8 }));
+    const form = new FormData();
+    form.set("blob", new Blob([new Uint8Array(4)]), "cipher.bin");
+    form.set("meta", JSON.stringify({ iv: "x" }));
+    form.set("ttl", "3600");
+    const res = await smallApp.request("/api/shares", {
+      method: "POST",
+      body: form,
+      headers: { "content-length": String(8 + 4096 + 1) },
+    });
+    expect(res.status).toBe(413);
+  });
+
   test("POST without blob returns 400", async () => {
     const res = await postForm({
       meta: JSON.stringify({ iv: "x" }),
@@ -268,5 +297,18 @@ describe("POST /api/shares rate limiting", () => {
     await postFrom("3.3.3.3, 10.0.0.2");
     const limited = await postFrom("3.3.3.3, 10.0.0.3");
     expect(limited.status).toBe(429);
+  });
+
+  test("without XFF and trustProxy false, requests share the 'unknown' bucket", async () => {
+    function postNoHeader(): Promise<Response> {
+      const form = new FormData();
+      form.set("blob", new Blob([new Uint8Array([1])]), "cipher.bin");
+      form.set("meta", JSON.stringify({ iv: "x" }));
+      form.set("ttl", "3600");
+      return rlApp.request("/api/shares", { method: "POST", body: form });
+    }
+    expect((await postNoHeader()).status).toBe(201);
+    expect((await postNoHeader()).status).toBe(201);
+    expect((await postNoHeader()).status).toBe(429);
   });
 });

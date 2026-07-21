@@ -11,6 +11,8 @@ describe("loadConfig", () => {
     expect(config.rateLimitWindowMs).toBe(3600000);
     expect(config.minTtl).toBe(60);
     expect(config.maxTtl).toBe(2592000);
+    expect(config.trustProxy).toBe(false);
+    expect(config.maxMetaSize).toBe(16384);
   });
 
   test("parses overrides into numbers", () => {
@@ -21,6 +23,8 @@ describe("loadConfig", () => {
       RATE_LIMIT_MAX: "5",
       RATE_LIMIT_WINDOW_MS: "1000",
       MAX_TTL: "600",
+      TRUST_PROXY: "true",
+      MAX_META_SIZE: "512",
     });
     expect(config.port).toBe(8080);
     expect(config.dataDir).toBe("/srv/data");
@@ -29,9 +33,17 @@ describe("loadConfig", () => {
     expect(config.rateLimitWindowMs).toBe(1000);
     expect(config.maxTtl).toBe(600);
     expect(config.minTtl).toBe(60);
+    expect(config.trustProxy).toBe(true);
+    expect(config.maxMetaSize).toBe(512);
   });
 
   test("throws when a numeric env var is non-numeric", () => {
     expect(() => loadConfig({ MAX_BLOB_SIZE: "not-a-number" })).toThrow();
+  });
+
+  test("trustProxy parses '1' as true and other values as false", () => {
+    expect(loadConfig({ TRUST_PROXY: "1" }).trustProxy).toBe(true);
+    expect(loadConfig({ TRUST_PROXY: "false" }).trustProxy).toBe(false);
+    expect(loadConfig({ TRUST_PROXY: "yes" }).trustProxy).toBe(false);
   });
 });

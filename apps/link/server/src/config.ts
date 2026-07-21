@@ -6,6 +6,12 @@ export interface Config {
   rateLimitWindowMs: number;
   minTtl: number;
   maxTtl: number;
+  trustProxy: boolean;
+  maxMetaSize: number;
+}
+
+function parseBoolEnv(value: string | undefined): boolean {
+  return value === "true" || value === "1";
 }
 
 function parseIntEnv(value: string | undefined, name: string, fallback: number): number {
@@ -28,5 +34,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     rateLimitWindowMs: parseIntEnv(env.RATE_LIMIT_WINDOW_MS, "RATE_LIMIT_WINDOW_MS", 3600000),
     minTtl: 60,
     maxTtl: parseIntEnv(env.MAX_TTL, "MAX_TTL", 2592000),
+    trustProxy: parseBoolEnv(env.TRUST_PROXY),
+    maxMetaSize: parseIntEnv(env.MAX_META_SIZE, "MAX_META_SIZE", 16384),
   };
 }
