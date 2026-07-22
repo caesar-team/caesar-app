@@ -102,9 +102,10 @@ export async function deriveKey(
     });
 
     // Import as CryptoKey for Web Crypto API usage
+    // Cast bridges the TS lib.dom widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      derivedKeyMaterial,
+      derivedKeyMaterial as BufferSource,
       { name: "AES-GCM" },
       false, // Not extractable for security
       ["encrypt", "decrypt"]

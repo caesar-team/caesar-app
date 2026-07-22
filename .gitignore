@@ -50,3 +50,4 @@ Thumbs.db
 temp/
 tmp/
 .worktrees/
+.design-ref/
