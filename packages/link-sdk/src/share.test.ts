@@ -14,7 +14,12 @@ describe("share bundle", () => {
 
   test("password roundtrip and wrong-password failure", async () => {
     const bundle = await createShare(
-      { type: "file", name: "a.bin", data: new Uint8Array([9, 9, 9]) },
+      {
+        type: "file",
+        files: [
+          { name: "a.bin", mime: "application/octet-stream", data: new Uint8Array([9, 9, 9]) },
+        ],
+      },
       { password: "hunter2" }
     );
     expect(bundle.kdf?.kdf).toBe("scrypt");
@@ -24,7 +29,8 @@ describe("share bundle", () => {
       password: "hunter2",
       kdf: bundle.kdf,
     });
-    expect(payload.name).toBe("a.bin");
+    if (payload.type !== "file") throw new Error("expected file payload");
+    expect(payload.files[0].name).toBe("a.bin");
     await expect(
       openShare({ blob: bundle.blob, fragment: bundle.fragment, password: "nope", kdf: bundle.kdf })
     ).rejects.toThrow();

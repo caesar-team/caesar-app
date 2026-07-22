@@ -99,7 +99,7 @@ describe("share flow", () => {
   test("password: roundtrip and wrong password fails", async () => {
     restore = installServer();
     const created = await createAndUpload(
-      { type: "file", name: "a.txt", mime: "text/plain", data: enc("secret") },
+      { type: "file", files: [{ name: "a.txt", mime: "text/plain", data: enc("secret") }] },
       { ttlSeconds: 3600, views: null, password: "hunter2", origin: ORIGIN }
     );
     expect(created.password).toBe("hunter2");
@@ -107,8 +107,9 @@ describe("share flow", () => {
 
     const { meta } = await fetchMeta(created.url);
     const ok = await fetchAndOpen(created.url, meta, "hunter2");
-    expect(ok.name).toBe("a.txt");
-    expect(dec(ok.data)).toBe("secret");
+    if (ok.type !== "file") throw new Error("expected file payload");
+    expect(ok.files[0].name).toBe("a.txt");
+    expect(dec(ok.files[0].data)).toBe("secret");
 
     const meta2 = await fetchMeta(created.url);
     await expect(fetchAndOpen(created.url, meta2.meta, "WRONG")).rejects.toThrow();

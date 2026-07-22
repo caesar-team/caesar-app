@@ -1,4 +1,4 @@
-import type { SharePayload } from "@caesar/link-sdk";
+import type { SharePayload, SharedFile } from "@caesar/link-sdk";
 import { type CSSProperties, useEffect, useState } from "react";
 import { Shell } from "../components/Layout.js";
 import { t } from "../i18n.js";
@@ -57,14 +57,14 @@ const lockIcon = (
   </span>
 );
 
-function downloadFile(payload: SharePayload) {
-  const blob = new Blob([payload.data as BlobPart], {
-    type: payload.mime || "application/octet-stream",
+function downloadFile(f: SharedFile) {
+  const blob = new Blob([f.data as BlobPart], {
+    type: f.mime || "application/octet-stream",
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = payload.name || "download";
+  a.download = f.name || "download";
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -142,7 +142,7 @@ export function View() {
   }
 
   async function copyText() {
-    if (!payload) return;
+    if (payload?.type !== "text") return;
     await navigator.clipboard.writeText(dec(payload.data));
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
@@ -311,7 +311,7 @@ export function View() {
     );
   }
 
-  if (state === "text" && payload) {
+  if (state === "text" && payload?.type === "text") {
     return (
       <Shell>
         <div className="anim" style={{ width: "100%", maxWidth: 520, margin: "0 auto" }}>
@@ -403,8 +403,9 @@ export function View() {
     );
   }
 
-  if (state === "file" && payload) {
-    const ext = (payload.name?.split(".").pop() ?? "").slice(0, 4).toUpperCase() || "FILE";
+  if (state === "file" && payload?.type === "file") {
+    const files = payload.files;
+    const multi = files.length > 1;
     return (
       <Shell>
         <div className="anim" style={{ width: "100%", maxWidth: 460, margin: "0 auto" }}>
@@ -418,63 +419,96 @@ export function View() {
               textAlign: "center",
             }}
           >
-            {t("view.file_ready")}
+            {multi
+              ? t("view.files_ready").replace("{n}", String(files.length))
+              : t("view.file_ready")}
           </h2>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              background: "var(--surface-2)",
-              border: "1px solid var(--line)",
-              borderRadius: 18,
-              padding: 20,
-            }}
-          >
-            <div
-              className="mono"
-              style={{
-                width: 52,
-                height: 62,
-                borderRadius: 10,
-                background: "var(--primary-soft)",
-                border: "1px solid var(--line)",
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "center",
-                paddingBottom: 8,
-                fontSize: 11,
-                color: "var(--primary)",
-                fontWeight: 600,
-                flex: "none",
-              }}
-            >
-              {ext}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 15.5,
-                  color: "var(--fg)",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {payload.name ?? "download"}
-              </div>
-              <div className="mono" style={{ fontSize: 12.5, color: "var(--fg-2)", marginTop: 3 }}>
-                {formatBytes(payload.data.length)} · {t("view.decrypted_suffix")}
-              </div>
-            </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {files.map((f, i) => {
+              const ext = (f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase() || "FILE";
+              return (
+                <div
+                  key={`${f.name}-${f.data.length}-${i}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 18,
+                    padding: 20,
+                  }}
+                >
+                  <div
+                    className="mono"
+                    style={{
+                      width: 52,
+                      height: 62,
+                      borderRadius: 10,
+                      background: "var(--primary-soft)",
+                      border: "1px solid var(--line)",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      paddingBottom: 8,
+                      fontSize: 11,
+                      color: "var(--primary)",
+                      fontWeight: 600,
+                      flex: "none",
+                    }}
+                  >
+                    {ext}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 15.5,
+                        color: "var(--fg)",
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {f.name}
+                    </div>
+                    <div
+                      className="mono"
+                      style={{ fontSize: 12.5, color: "var(--fg-2)", marginTop: 3 }}
+                    >
+                      {formatBytes(f.data.length)} · {t("view.decrypted_suffix")}
+                    </div>
+                  </div>
+                  {multi && (
+                    <button
+                      type="button"
+                      onClick={() => downloadFile(f)}
+                      aria-label={t("view.download")}
+                      style={{
+                        color: "var(--primary)",
+                        width: 40,
+                        height: 40,
+                        borderRadius: 999,
+                        border: "1px solid var(--line)",
+                        flex: "none",
+                        fontSize: 16,
+                      }}
+                    >
+                      ↓
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <button
             type="button"
-            onClick={() => downloadFile(payload)}
+            onClick={() => {
+              for (const f of files) downloadFile(f);
+            }}
             style={{ ...viewPrimary, marginTop: 20 }}
           >
-            {t("view.download")}
+            {multi ? t("view.download_all") : t("view.download")}
           </button>
           <p
             style={{
