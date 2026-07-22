@@ -1,0 +1,50 @@
+name: Link CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+  pull_request:
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.20"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build (crypto + link-sdk + web)
+        run: bunx turbo run build --filter='@caesar/link-web...'
+
+      - name: Typecheck server
+        run: bun run --filter @caesar/link-server build
+
+      - name: Test
+        run: |
+          (cd packages/crypto && bun test)
+          (cd packages/link-sdk && bun test)
+          (cd apps/link/server && bun test)
+          (cd apps/link/web && bun test src/lib)
+
+      - name: Lint (Biome — pinned to the repo config's schema)
+        run: >
+          bunx @biomejs/biome@1.9.4 check
+          packages/crypto/src packages/link-sdk/src
+          apps/link/server/src apps/link/web/src
