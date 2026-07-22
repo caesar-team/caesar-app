@@ -3,7 +3,7 @@
  * Uses @noble/hashes for secure key derivation from passwords
  */
 
-import { scrypt } from "@noble/hashes/scrypt";
+import { scrypt } from "@noble/hashes/scrypt.js";
 import type { DerivedKey, ScryptParams } from "./types.js";
 
 /**
