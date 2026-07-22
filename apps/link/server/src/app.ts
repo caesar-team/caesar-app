@@ -180,5 +180,27 @@ export function createApp(store: ShareStore, config: Config): Hono {
     return c.body(null, 204);
   });
 
+  // Serve the built web SPA when configured. Real assets (with an extension) are
+  // served from disk; every other GET falls back to index.html so client routes
+  // like /s/:id load the app. API routes are matched above and win.
+  if (config.webDir) {
+    const webDir = config.webDir;
+    const indexHtml = `${webDir}/index.html`;
+    app.get("*", async (c) => {
+      const pathname = new URL(c.req.url).pathname;
+      if (pathname.startsWith("/api/")) {
+        return notFound(c);
+      }
+      const isAsset = pathname !== "/" && pathname.includes(".");
+      if (isAsset) {
+        const file = Bun.file(`${webDir}${pathname}`);
+        if (await file.exists()) {
+          return new Response(file);
+        }
+      }
+      return new Response(Bun.file(indexHtml), { headers: { "content-type": "text/html" } });
+    });
+  }
+
   return app;
 }

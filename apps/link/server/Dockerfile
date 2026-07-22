@@ -1,19 +1,27 @@
 # syntax=docker/dockerfile:1
 # Build context is the monorepo root (see docker-compose.yml `context: .`).
-FROM oven/bun:1.2.20 AS base
+
+# --- builder: full install + build the web SPA (and workspace deps for its typecheck) ---
+FROM oven/bun:1.2.20 AS builder
 WORKDIR /app
-
-# This is a Bun workspace: `bun install --frozen-lockfile` validates the WHOLE
-# workspace graph against bun.lock, so a partial copy fails. We copy the full
-# context (the .dockerignore at the repo root trims node_modules, dist, tests,
-# data, .git, .worktrees), then install. The server itself has no @caesar/*
-# runtime dependency, but the frozen lockfile still needs every member present.
+# Full context; the repo .dockerignore trims node_modules, dist, tests, .git, .worktrees, data.
 COPY . .
+RUN bun install --frozen-lockfile
+# Produce the SPA bundle only. Vite aliases @caesar/link-sdk and @caesar/crypto to
+# their TS source, so no workspace dist is needed and tsc/type-checking (a separate
+# CI gate) is skipped here — the image just needs the built assets to serve.
+RUN cd apps/link/web && bunx vite build
 
+# --- runtime: production deps + server source + built SPA ---
+FROM oven/bun:1.2.20 AS runtime
+WORKDIR /app
+COPY . .
 RUN bun install --frozen-lockfile --production
+COPY --from=builder /app/apps/link/web/dist ./apps/link/web/dist
 
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
+ENV WEB_DIR=/app/apps/link/web/dist
 VOLUME ["/data"]
 EXPOSE 3000
 

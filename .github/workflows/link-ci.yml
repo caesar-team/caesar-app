@@ -1,0 +1,61 @@
+name: Link CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+  pull_request:
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install Bun via the official script (no node24 action — works on GitHub
+      # Actions and on older Gitea act runners alike).
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.20"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      # Build the workspace crypto/sdk dist (their .d.ts + .js feed the web
+      # typecheck and the link-sdk/web tests). --build --force guarantees emit
+      # even if a composite .tsbuildinfo is stale.
+      - name: Build workspace packages
+        run: |
+          (cd packages/crypto && bunx tsc --build --force)
+          (cd packages/link-sdk && bunx tsc --build --force)
+
+      - name: Build web bundle
+        run: cd apps/link/web && bunx vite build
+
+      - name: Typecheck server
+        run: bun run --filter @caesar/link-server build
+
+      - name: Test
+        run: |
+          (cd packages/crypto && bun test)
+          (cd packages/link-sdk && bun test)
+          (cd apps/link/server && bun test)
+          (cd apps/link/web && bun test src/lib)
+
+      - name: Lint (Biome — pinned to the repo config's schema)
+        run: >
+          bunx @biomejs/biome@1.9.4 check
+          packages/crypto/src packages/link-sdk/src
+          apps/link/server/src apps/link/web/src

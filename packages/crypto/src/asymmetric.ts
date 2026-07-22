@@ -44,11 +44,13 @@ export async function generateRsaKeyPair(
       hash,
     };
 
-    const cryptoKeyPair = await crypto.subtle.generateKey(
+    // RSA-OAEP always yields a key pair; narrow the CryptoKey | CryptoKeyPair union that the
+    // generateKey overload widens to when its algorithm arg isn't matched to the key-pair overload.
+    const cryptoKeyPair = (await crypto.subtle.generateKey(
       algorithm,
       true, // extractable
       ["encrypt", "decrypt"]
-    );
+    )) as CryptoKeyPair;
 
     return {
       publicKey: cryptoKeyPair.publicKey,
@@ -97,7 +99,8 @@ export async function encryptWithPublicKey(
       hash,
     };
 
-    const ciphertext = await crypto.subtle.encrypt(algorithm, publicKey, data);
+    // Cast bridges the TS lib.dom widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
+    const ciphertext = await crypto.subtle.encrypt(algorithm, publicKey, data as BufferSource);
 
     return new Uint8Array(ciphertext);
   } catch (error) {
@@ -134,7 +137,12 @@ export async function decryptWithPrivateKey(
       hash,
     };
 
-    const plaintext = await crypto.subtle.decrypt(algorithm, privateKey, ciphertext);
+    // Cast bridges the TS lib.dom widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
+    const plaintext = await crypto.subtle.decrypt(
+      algorithm,
+      privateKey,
+      ciphertext as BufferSource
+    );
 
     return new Uint8Array(plaintext);
   } catch (error) {

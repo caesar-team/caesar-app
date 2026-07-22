@@ -1,0 +1,312 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+/* ============ Design tokens (ported from Link.dc.html) ============ */
+:root {
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #f8f8fa;
+  --fg: #161619;
+  --fg-2: #5c5c66;
+  --line: rgba(20, 20, 25, 0.12);
+  --line-2: rgba(20, 20, 25, 0.07);
+  --primary: #7c5cff;
+  --primary-soft: rgba(124, 92, 255, 0.1);
+  --warn: #9a5a00;
+  --warn-soft: rgba(154, 90, 0, 0.1);
+  --ok: #158a4a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0d;
+    --surface: #141418;
+    --surface-2: #1b1b21;
+    --fg: #f1f1f4;
+    --fg-2: #9a9aa6;
+    --line: rgba(255, 255, 255, 0.12);
+    --line-2: rgba(255, 255, 255, 0.06);
+    --primary: #9179ff;
+    --primary-soft: rgba(145, 121, 255, 0.16);
+    --warn: #e6b34a;
+    --warn-soft: rgba(230, 179, 74, 0.12);
+    --ok: #4fd18a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b0b0d;
+  --surface: #141418;
+  --surface-2: #1b1b21;
+  --fg: #f1f1f4;
+  --fg-2: #9a9aa6;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-2: rgba(255, 255, 255, 0.06);
+  --primary: #9179ff;
+  --primary-soft: rgba(145, 121, 255, 0.16);
+  --warn: #e6b34a;
+  --warn-soft: rgba(230, 179, 74, 0.12);
+  --ok: #4fd18a;
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #f8f8fa;
+  --fg: #161619;
+  --fg-2: #5c5c66;
+  --line: rgba(20, 20, 25, 0.12);
+  --line-2: rgba(20, 20, 25, 0.07);
+  --primary: #7c5cff;
+  --primary-soft: rgba(124, 92, 255, 0.1);
+  --warn: #9a5a00;
+  --warn-soft: rgba(154, 90, 0, 0.1);
+  --ok: #158a4a;
+}
+
+/* ============ Reset (ported from Link.dc.html) ============ */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--fg);
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+textarea {
+  resize: none;
+}
+a {
+  color: var(--primary, #7c5cff);
+  text-decoration: none;
+}
+a:hover {
+  opacity: 0.8;
+}
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+:focus-visible {
+  outline: 2px solid var(--primary, #7c5cff);
+  outline-offset: 2px;
+}
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
+}
+select {
+  appearance: none;
+  -webkit-appearance: none;
+}
+::selection {
+  background: rgba(124, 92, 255, 0.28);
+}
+
+/* ============ Keyframes (ported from Link.dc.html) ============ */
+@keyframes fr {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: -160% 0;
+  }
+  100% {
+    background-position: 260% 0;
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+@keyframes drawc {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes shine {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(240%);
+  }
+}
+@keyframes floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes barflow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 36px 0;
+  }
+}
+.anim {
+  animation: fr 0.34s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+}
+
+/* ============ App shell ============ */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px 70px;
+}
+.app-card {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+}
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.brand-name {
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.dot-ok {
+  background: var(--ok);
+}
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 26px 0;
+}
+.app-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.lang-toggle {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.lang-toggle:hover {
+  color: var(--fg);
+}
+.hero-title {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 0 0 6px;
+  color: var(--fg);
+}
+.hero-sub {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+.hero-sub em {
+  font-style: normal;
+  color: var(--fg);
+}

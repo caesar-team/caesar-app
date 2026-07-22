@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: link
+  labels:
+    app: link
+spec:
+  # Single replica by design: the server uses SQLite + local-disk blobs and the
+  # one-time view-consume is atomic within one process. Do NOT scale >1 on the
+  # same PVC. Horizontal scaling would need Postgres + object storage.
+  replicas: 1
+  strategy:
+    type: Recreate # never run two pods on the RWO volume at once
+  selector:
+    matchLabels:
+      app: link
+  template:
+    metadata:
+      labels:
+        app: link
+    spec:
+      # Private GHCR image needs a pull secret (see deploy/README.md).
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: link
+          image: ghcr.io/caesar-team/link:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: link-config
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # Optional white-label override (see README): mount a branding.json
+            # ConfigMap over the image default.
+            # - name: branding
+            #   mountPath: /app/apps/link/web/dist/branding.json
+            #   subPath: branding.json
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # Headroom for a 100 MB upload + scrypt; tune to your node.
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false # oven/bun image runs as root; the app writes to /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: link-data
+        # - name: branding
+        #   configMap:
+        #     name: link-branding

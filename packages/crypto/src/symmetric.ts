@@ -119,11 +119,16 @@ export async function encrypt(
     const params: AesGcmParams = {
       name: "AES-GCM",
       iv,
-      additionalData: aad,
       tagLength: DEFAULT_TAG_LENGTH,
     };
+    // Only set additionalData when present — browsers' SubtleCrypto rejects a
+    // present-but-undefined `additionalData` ("Not a BufferSource"), unlike Bun.
+    if (aad !== undefined) {
+      params.additionalData = aad;
+    }
 
-    const ciphertext = await crypto.subtle.encrypt(params, key.key, plaintext);
+    // Cast bridges the TS lib.dom widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
+    const ciphertext = await crypto.subtle.encrypt(params, key.key, plaintext as BufferSource);
 
     const result: EncryptedData = {
       ciphertext: new Uint8Array(ciphertext),
@@ -191,11 +196,18 @@ export async function decrypt(
     const params: AesGcmParams = {
       name: "AES-GCM",
       iv: encrypted.iv,
-      additionalData: encrypted.aad,
       tagLength: DEFAULT_TAG_LENGTH,
     };
+    if (encrypted.aad !== undefined) {
+      params.additionalData = encrypted.aad;
+    }
 
-    const plaintext = await crypto.subtle.decrypt(params, key.key, encrypted.ciphertext);
+    // Cast bridges the TS lib.dom widening (Uint8Array<ArrayBufferLike> vs the ArrayBuffer-backed BufferSource).
+    const plaintext = await crypto.subtle.decrypt(
+      params,
+      key.key,
+      encrypted.ciphertext as BufferSource
+    );
 
     return {
       success: true,

@@ -8,6 +8,8 @@ export interface Config {
   maxTtl: number;
   trustProxy: boolean;
   maxMetaSize: number;
+  /** Directory of the built web SPA to serve; undefined = API only */
+  webDir?: string;
 }
 
 function parseBoolEnv(value: string | undefined): boolean {
@@ -36,5 +38,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     maxTtl: parseIntEnv(env.MAX_TTL, "MAX_TTL", 2592000),
     trustProxy: parseBoolEnv(env.TRUST_PROXY),
     maxMetaSize: parseIntEnv(env.MAX_META_SIZE, "MAX_META_SIZE", 16384),
+    webDir: env.WEB_DIR,
   };
 }

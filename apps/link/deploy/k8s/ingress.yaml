@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: link
+  annotations:
+    # cert-manager (if installed) — issues a Let's Encrypt cert for the TLS host.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx: allow up to the app's max blob size (+ multipart overhead).
+    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+spec:
+  # Set to your ingress controller: "nginx", "traefik", etc.
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - link.example.com # ← your domain
+      secretName: link-tls
+  rules:
+    - host: link.example.com # ← your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: link
+                port:
+                  number: 80
