@@ -51,3 +51,6 @@ temp/
 tmp/
 .worktrees/
 .design-ref/
+
+# Dangling embedded repo removed (no .gitmodules); keep it out of the index
+docs/
