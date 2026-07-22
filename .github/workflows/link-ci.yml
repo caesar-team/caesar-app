@@ -23,15 +23,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.2.20"
+      # Install Bun via the official script (no node24 action — works on GitHub
+      # Actions and on older Gitea act runners alike).
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.20"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      - name: Install
+      - name: Install deps
         run: bun install --frozen-lockfile
 
-      - name: Build (crypto + link-sdk + web)
-        run: bunx turbo run build --filter='@caesar/link-web...'
+      # Build the workspace crypto/sdk dist (their .d.ts + .js feed the web
+      # typecheck and the link-sdk/web tests). --build --force guarantees emit
+      # even if a composite .tsbuildinfo is stale.
+      - name: Build workspace packages
+        run: |
+          (cd packages/crypto && bunx tsc --build --force)
+          (cd packages/link-sdk && bunx tsc --build --force)
+
+      - name: Build web bundle
+        run: cd apps/link/web && bunx vite build
 
       - name: Typecheck server
         run: bun run --filter @caesar/link-server build

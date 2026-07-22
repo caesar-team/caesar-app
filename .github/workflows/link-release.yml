@@ -19,6 +19,9 @@ env:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    # Image build/push targets GitHub (GHCR) with node24 Docker actions — skip on
+    # mirrored Gitea runners (older act, no GHCR). CI still runs on both.
+    if: ${{ startsWith(github.server_url, 'https://github.com') }}
     permissions:
       contents: read
       packages: write
