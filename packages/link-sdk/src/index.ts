@@ -9,4 +9,10 @@ export {
 } from "./fragment.js";
 export { buildShareUrl, parseShareUrl } from "./link.js";
 export { createShare, openShare, type ShareBundle } from "./share.js";
-export { ENVELOPE_VERSION, type KdfMeta, type SealedBlob, type SharePayload } from "./types.js";
+export {
+  ENVELOPE_VERSION,
+  type KdfMeta,
+  type SealedBlob,
+  type SharedFile,
+  type SharePayload,
+} from "./types.js";

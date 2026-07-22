@@ -15,17 +15,31 @@ describe("envelope", () => {
     const payload: SharePayload = { type: "text", data: new TextEncoder().encode("привет") };
     const sealed = await sealEnvelope(payload, dek);
     const opened = await openEnvelope(sealed, dek);
-    expect(opened.type).toBe("text");
+    if (opened.type !== "text") throw new Error("expected text payload");
     expect(new TextDecoder().decode(opened.data)).toBe("привет");
   });
 
-  test("roundtrips a file payload preserving name and mime", async () => {
+  test("roundtrips a single file preserving name and mime", async () => {
     const dek = await freshKey();
     const payload: SharePayload = {
       type: "file",
-      name: "report.pdf",
-      mime: "application/pdf",
-      data: new Uint8Array([1, 2, 3, 255]),
+      files: [
+        { name: "report.pdf", mime: "application/pdf", data: new Uint8Array([1, 2, 3, 255]) },
+      ],
+    };
+    const opened = await openEnvelope(await sealEnvelope(payload, dek), dek);
+    expect(opened).toEqual(payload);
+  });
+
+  test("roundtrips multiple files preserving order and bytes", async () => {
+    const dek = await freshKey();
+    const payload: SharePayload = {
+      type: "file",
+      files: [
+        { name: "a.txt", mime: "text/plain", data: new Uint8Array([0, 1]) },
+        { name: "b.bin", mime: "application/octet-stream", data: new Uint8Array([254, 255]) },
+        { name: "картинка.png", mime: "image/png", data: new Uint8Array([137, 80]) },
+      ],
     };
     const opened = await openEnvelope(await sealEnvelope(payload, dek), dek);
     expect(opened).toEqual(payload);
@@ -54,7 +68,7 @@ describe("envelope", () => {
   test("rejects a malformed but authenticated payload (fail closed)", async () => {
     const dek = await freshKey();
     const { encrypt } = await import("@caesar/crypto");
-    const bogus = new TextEncoder().encode(JSON.stringify({ v: 1, type: "evil", data: "" }));
+    const bogus = new TextEncoder().encode(JSON.stringify({ v: 2, type: "evil", data: "" }));
     const enc = await encrypt(dek, bogus);
     if (!enc.success) throw new Error("encrypt failed");
     await expect(

@@ -99,7 +99,7 @@ function viewPill(active: boolean): CSSProperties {
 export function Create() {
   const [mode, setMode] = useState<Mode>("text");
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [expiry, setExpiry] = useState("24h");
   const [viewsMode, setViewsMode] = useState<ViewsMode>("once");
@@ -146,7 +146,7 @@ export function Create() {
   ][strength];
   const createDisabled =
     phase !== "idle" ||
-    (mode === "text" ? text.trim().length === 0 : file === null) ||
+    (mode === "text" ? text.trim().length === 0 : files.length === 0) ||
     (pwEnabled && password.length === 0);
 
   function enablePw() {
@@ -161,12 +161,16 @@ export function Create() {
     setError(null);
     try {
       let payload: SharePayload;
-      if (mode === "file" && file) {
+      if (mode === "file" && files.length > 0) {
         payload = {
           type: "file",
-          name: file.name,
-          mime: file.type || "application/octet-stream",
-          data: new Uint8Array(await file.arrayBuffer()),
+          files: await Promise.all(
+            files.map(async (f) => ({
+              name: f.name,
+              mime: f.type || "application/octet-stream",
+              data: new Uint8Array(await f.arrayBuffer()),
+            }))
+          ),
         };
       } else {
         payload = { type: "text", data: new TextEncoder().encode(text) };
@@ -192,7 +196,7 @@ export function Create() {
     setResult(null);
     setProgress(0);
     setText("");
-    setFile(null);
+    setFiles([]);
     setPassword(pwEnabled ? generatePassword() : "");
   }
 
@@ -555,131 +559,142 @@ export function Create() {
               <span className="mono">{text.length}</span>
             </div>
           </>
-        ) : file ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              background: "var(--surface-2)",
-              border: "1px solid var(--line)",
-              borderRadius: 16,
-              padding: "15px 16px",
-            }}
-          >
-            <div
-              className="mono"
-              style={{
-                width: 42,
-                height: 50,
-                borderRadius: 8,
-                background: "var(--primary-soft)",
-                border: "1px solid var(--line)",
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "center",
-                paddingBottom: 6,
-                fontSize: 10,
-                color: "var(--primary)",
-                fontWeight: 600,
-                flex: "none",
-              }}
-            >
-              {(file.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {files.map((f, i) => (
               <div
+                key={`${f.name}-${f.size}-${i}`}
                 style={{
-                  fontSize: 14.5,
-                  color: "var(--fg)",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 16,
+                  padding: "15px 16px",
                 }}
               >
-                {file.name}
+                <div
+                  className="mono"
+                  style={{
+                    width: 42,
+                    height: 50,
+                    borderRadius: 8,
+                    background: "var(--primary-soft)",
+                    border: "1px solid var(--line)",
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    paddingBottom: 6,
+                    fontSize: 10,
+                    color: "var(--primary)",
+                    fontWeight: 600,
+                    flex: "none",
+                  }}
+                >
+                  {(f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 14.5,
+                      color: "var(--fg)",
+                      fontWeight: 500,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {f.name}
+                  </div>
+                  <div
+                    className="mono"
+                    style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 2 }}
+                  >
+                    {formatBytes(f.size)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={t("create.remove_file")}
+                  style={{
+                    color: "var(--fg-2)",
+                    width: 32,
+                    height: 32,
+                    borderRadius: 999,
+                    border: "1px solid var(--line)",
+                    flex: "none",
+                    fontSize: 14,
+                  }}
+                >
+                  ✕
+                </button>
               </div>
-              <div className="mono" style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 2 }}>
-                {formatBytes(file.size)}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFile(null)}
-              aria-label={t("create.remove_file")}
+            ))}
+            <label
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                if (e.dataTransfer.files.length > 0) {
+                  setFiles((prev) => [...prev, ...Array.from(e.dataTransfer.files)]);
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
               style={{
-                color: "var(--fg-2)",
-                width: 32,
-                height: 32,
-                borderRadius: 999,
-                border: "1px solid var(--line)",
-                flex: "none",
-                fontSize: 14,
+                display: "block",
+                textAlign: "center",
+                cursor: "pointer",
+                background: dragging ? "var(--primary-soft)" : "var(--surface-2)",
+                border: `1.5px dashed ${dragging ? "var(--primary)" : "var(--line)"}`,
+                borderRadius: 16,
+                padding: files.length > 0 ? "18px 16px" : "30px 16px",
               }}
             >
-              ✕
-            </button>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    setFiles((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
+                  }
+                  e.target.value = "";
+                }}
+                style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+                aria-label={t("create.drag")}
+              />
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  background: "var(--primary-soft)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  margin: "0 auto 12px",
+                  fontSize: 20,
+                  color: "var(--primary)",
+                }}
+              >
+                ↑
+              </div>
+              <div style={{ fontSize: 15, color: "var(--fg)", fontWeight: 500 }}>
+                {t("create.drag")}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 3 }}>
+                {t("create.browse_1")}
+                <span style={{ color: "var(--primary)", fontWeight: 500 }}>
+                  {t("create.browse_link")}
+                </span>
+                {t("create.browse_2")}
+              </div>
+            </label>
           </div>
-        ) : (
-          <label
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              const f = e.dataTransfer.files[0];
-              if (f) setFile(f);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            style={{
-              display: "block",
-              textAlign: "center",
-              cursor: "pointer",
-              background: dragging ? "var(--primary-soft)" : "var(--surface-2)",
-              border: `1.5px dashed ${dragging ? "var(--primary)" : "var(--line)"}`,
-              borderRadius: 16,
-              padding: "30px 16px",
-            }}
-          >
-            <input
-              type="file"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) setFile(f);
-              }}
-              style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
-              aria-label={t("create.drag")}
-            />
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                background: "var(--primary-soft)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 12px",
-                fontSize: 20,
-                color: "var(--primary)",
-              }}
-            >
-              ↑
-            </div>
-            <div style={{ fontSize: 15, color: "var(--fg)", fontWeight: 500 }}>
-              {t("create.drag")}
-            </div>
-            <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 3 }}>
-              {t("create.browse_1")}
-              <span style={{ color: "var(--primary)", fontWeight: 500 }}>
-                {t("create.browse_link")}
-              </span>
-              {t("create.browse_2")}
-            </div>
-          </label>
         )}
 
         <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 16 }}>

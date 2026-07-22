@@ -55,7 +55,7 @@ describe("end-to-end sender → store → recipient", () => {
     const server = new Map<string, StoredShare>();
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const bundle = await createShare(
-      { type: "file", name: "secret.txt", mime: "text/plain", data: bytes },
+      { type: "file", files: [{ name: "secret.txt", mime: "text/plain", data: bytes }] },
       { password: "hunter2" }
     );
     const url = upload(server, "pw001", bundle);
@@ -71,9 +71,11 @@ describe("end-to-end sender → store → recipient", () => {
       kdf: stored.kdf,
     });
 
-    expect(payload.name).toBe("secret.txt");
-    expect(payload.mime).toBe("text/plain");
-    expect(new Uint8Array(payload.data)).toEqual(bytes);
+    if (payload.type !== "file") throw new Error("expected file payload");
+    expect(payload.files).toHaveLength(1);
+    expect(payload.files[0].name).toBe("secret.txt");
+    expect(payload.files[0].mime).toBe("text/plain");
+    expect(new Uint8Array(payload.files[0].data)).toEqual(bytes);
 
     await expect(openShare({ blob: toBlob(stored), fragment, kdf: stored.kdf })).rejects.toThrow();
   }, 60000);
@@ -81,7 +83,12 @@ describe("end-to-end sender → store → recipient", () => {
   test("zero-knowledge invariant: stored record leaks no plaintext or secret", async () => {
     const server = new Map<string, StoredShare>();
     const bundle = await createShare(
-      { type: "file", name: "payroll.xlsx", data: encode("SSN:12345") },
+      {
+        type: "file",
+        files: [
+          { name: "payroll.xlsx", mime: "application/octet-stream", data: encode("SSN:12345") },
+        ],
+      },
       { password: "hunter2" }
     );
     upload(server, "zk001", bundle);
