@@ -85,7 +85,10 @@ function pill(active: boolean): CSSProperties {
 function viewPill(active: boolean): CSSProperties {
   return {
     flex: 1,
-    padding: "9px 0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 4px",
     borderRadius: 9,
     fontSize: 13.5,
     fontWeight: 500,
@@ -695,10 +698,11 @@ export function Create() {
                   aria-label={t("create.expires")}
                   style={{
                     width: "100%",
+                    height: 44,
                     background: "var(--surface-2)",
                     border: "1px solid var(--line)",
                     borderRadius: 12,
-                    padding: "11px 32px 11px 13px",
+                    padding: "0 32px 0 13px",
                     fontSize: 14,
                     color: "var(--fg)",
                   }}
@@ -731,6 +735,7 @@ export function Create() {
                 style={{
                   display: "flex",
                   gap: 6,
+                  height: 44,
                   background: "var(--surface-2)",
                   border: "1px solid var(--line)",
                   borderRadius: 12,
