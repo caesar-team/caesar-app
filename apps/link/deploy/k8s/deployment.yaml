@@ -19,9 +19,10 @@ spec:
       labels:
         app: link
     spec:
-      # Private GHCR image needs a pull secret (see deploy/README.md).
-      imagePullSecrets:
-        - name: ghcr-pull
+      # Public GHCR image (open-source repo) pulls anonymously — no secret needed.
+      # For a PRIVATE package, uncomment and create the ghcr-pull secret (README).
+      # imagePullSecrets:
+      #   - name: ghcr-pull
       containers:
         - name: link
           image: ghcr.io/caesar-team/link:latest

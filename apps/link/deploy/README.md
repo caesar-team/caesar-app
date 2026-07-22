@@ -28,19 +28,24 @@ Manifests live in [`k8s/`](./k8s) (kustomize). They deploy: a `link` namespace,
 ConfigMap, a `ReadWriteOnce` PVC, a single-replica `Recreate` Deployment with
 `/api/health` probes, a ClusterIP Service, and an Ingress (TLS).
 
-### 1. Build & publish the image (GHCR)
+### 1. Build & publish the image (GHCR, multi-arch)
 
-CI does this automatically: **`.github/workflows/link-release.yml`** builds
-`apps/link/server/Dockerfile` and pushes `ghcr.io/<org>/link:latest` + `:sha-…`
-on every push to `main` (and on `link-v*` tags). No secrets needed beyond the
-built-in `GITHUB_TOKEN`.
+CI does this automatically: **`.github/workflows/link-release.yml`** builds a
+**multi-arch** image (`linux/amd64` on `ubuntu-latest`, `linux/arm64` natively on
+the free public `ubuntu-24.04-arm` runner — no QEMU), then merges them into one
+manifest and pushes `ghcr.io/<org>/link:latest` + `:sha-…` on every push to `main`
+(and on `link-v*` tags). Only the built-in `GITHUB_TOKEN` is used. The multi-arch
+manifest means the same tag runs on an amd64 or arm64 (k0s) node — the node pulls
+its own arch automatically. Requires the repo to be on GitHub with Actions enabled
+(see the mirror section).
 
-Manual build (if not using CI):
+Manual multi-arch build (e.g. from an Apple-silicon Mac, if not using CI):
 
 ```bash
-docker build -f apps/link/server/Dockerfile -t ghcr.io/caesar-team/link:latest .
 echo "$GITHUB_PAT" | docker login ghcr.io -u <you> --password-stdin
-docker push ghcr.io/caesar-team/link:latest
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f apps/link/server/Dockerfile \
+  -t ghcr.io/caesar-team/link:latest --push .
 ```
 
 ### 2. Prereqs on the cluster
@@ -57,7 +62,14 @@ kubectl patch storageclass local-path \
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
 ```
 
-### 3. Pull secret for the private GHCR image
+### 3. Pull secret — only if the GHCR package is private
+
+The manifests default to a **public** package (open-source repo) and pull
+anonymously — nothing to do here. Make the package public once in the GitHub
+package settings (Package → Package settings → Change visibility → Public).
+
+For a **private** package instead, create the secret and uncomment
+`imagePullSecrets` in `deployment.yaml`:
 
 ```bash
 kubectl create namespace link
@@ -67,8 +79,6 @@ kubectl create secret docker-registry ghcr-pull \
   --docker-username=<github-user> \
   --docker-password=<github-PAT-with-read:packages>
 ```
-
-(Make the GHCR package public and you can drop the secret + `imagePullSecrets`.)
 
 ### 4. Configure & apply
 
