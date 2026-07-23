@@ -43,29 +43,17 @@ final class VectorsTests: XCTestCase {
     /// Canonical location of the vectors, relative to the monorepo root.
     private static let canonicalPath = "packages/link-sdk/vectors/v2.json"
 
-    /// Resolves the vectors in either of the two shapes this package ships in:
-    ///
-    /// 1. **In the caesar-app monorepo** — read `packages/link-sdk/vectors/v2.json` directly,
-    ///    so regenerating it upstream breaks this test instead of drifting silently.
-    /// 2. **Released standalone** — the release script copies that same file next to this
-    ///    test as `Vectors/v2.json`, keeping the published package self-contained.
-    ///
-    /// Plain file reads off `#filePath` rather than `Bundle.module`, so the released copy
-    /// needs no `resources:` declaration and `Package.swift` never has to be patched.
+    /// Reads the canonical vectors — no vendored copy exists, so the two SDKs cannot drift.
+    /// Walking up from `#filePath` (rather than counting `../`) keeps this working if the
+    /// package moves inside the monorepo.
     private func vectorsURL() throws -> URL {
-        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-
-        var dir = here
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<8 {
             let candidate = dir.appendingPathComponent(Self.canonicalPath)
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
             dir = dir.deletingLastPathComponent()
         }
-
-        let bundled = here.appendingPathComponent("Vectors/v2.json")
-        if FileManager.default.fileExists(atPath: bundled.path) { return bundled }
-
-        throw XCTSkip("no vectors found — neither \(Self.canonicalPath) nor bundled Vectors/v2.json")
+        throw XCTSkip("\(Self.canonicalPath) not found — is this a full monorepo checkout?")
     }
 
     private func loadVectors() throws -> VectorsFile {

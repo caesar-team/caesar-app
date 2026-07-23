@@ -19,29 +19,31 @@ not used.
 
 ## Installation
 
+Depend on the monorepo itself — the root `Package.swift` vends this target:
+
 ```swift
-.package(url: "https://github.com/caesar-team/caesar-link-swift.git", from: "0.1.0")
+.package(url: "https://github.com/caesar-team/caesar-app.git", from: "0.1.0")
 ```
 
 ```swift
 .target(name: "YourApp", dependencies: [
-    .product(name: "CaesarLinkKit", package: "caesar-link-swift")
+    .product(name: "CaesarLinkKit", package: "caesar-app")
 ])
 ```
 
-### Where this code lives
+### Why the manifest is at the repo root
 
-Developed **here**, in the caesar-app monorepo, next to the TypeScript SDK and the protocol
-vectors both implementations must satisfy — so a protocol change touches both SDKs and the
-vectors in a single commit.
+`.package(url:)` has no subdirectory parameter — SwiftPM always reads `Package.swift` from
+the root of the cloned repository. A root manifest whose target uses
+`path: "SDKs/caesar-link-swift/Sources/CaesarLinkKit"` sidesteps that entirely, so this kit
+ships from the monorepo with **no second repository and no release tooling**.
 
-Published **per release** to its own repo (`caesar-team/caesar-link-swift`), because SwiftPM
-cannot point a remote dependency at a subdirectory: `.package(url:)` requires `Package.swift`
-at the repository root. Consumers therefore depend on a tagged release, never on a path into
-someone's checkout.
+That is what keeps the Swift and TypeScript SDKs honest: they sit side by side with the
+protocol vectors they must both satisfy, and a protocol change lands in one commit.
 
-The standalone repo is a build product — do not commit to it by hand; run the release script
-below.
+Two things to know: consumers clone the whole monorepo into their SwiftPM checkout (a few
+extra megabytes, otherwise harmless), and `from:` needs semver tags on **caesar-app**, whose
+version therefore doubles as the SDK version.
 
 ## Quick start
 
@@ -153,31 +155,14 @@ swift test
 for identical parameters. If these pass, the two implementations provably speak the same
 protocol.
 
-The vectors resolve in two ways, so the same test file works in both shapes this package
-ships in:
-
-1. **Here in the monorepo** — read straight from `packages/link-sdk/vectors/v2.json`. No
-   vendored copy exists, so it cannot drift; regenerating the vectors breaks this test
-   immediately, which is the point. CI re-runs it on any change to the kit *or* the vectors.
-2. **Released standalone** — `Scripts/release.sh` copies that same file into
-   `Tests/CaesarLinkKitTests/Vectors/v2.json`, keeping the published package self-contained.
-
-Both are plain file reads relative to the test source, so the released copy needs no
-`resources:` declaration and `Package.swift` is never patched.
+The test reads `packages/link-sdk/vectors/v2.json` straight from this repo — there is no
+vendored copy to drift. Regenerating the vectors upstream breaks this test immediately,
+which is the point. CI re-runs it on any change to the kit *or* the vectors.
 
 ## Releasing
 
-```bash
-Scripts/release.sh 0.1.0 --dry-run   # stage + verify, push nothing
-Scripts/release.sh 0.1.0             # publish and tag
-```
-
-The script stages the package outside the monorepo, bundles the canonical vectors, and runs
-`swift test` there **before** pushing — so a release that would ship an untestable or
-drifted package fails locally instead of reaching consumers. It then mirrors the tree into
-the standalone repo, commits (signed), tags `vX.Y.Z` and pushes.
-
-Override the target with `CAESAR_LINK_SWIFT_REPO` if you need a fork or a test remote.
+There is no release step. Consumers depend on a tagged commit of the monorepo; tag
+caesar-app (`vX.Y.Z`) and they pick it up. The tag's version doubles as this SDK's version.
 
 Both directions have also been checked against the live service: shares sealed by this kit,
 link-only and password-protected alike, decrypt correctly in the web app.

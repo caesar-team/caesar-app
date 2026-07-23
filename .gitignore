@@ -54,3 +54,8 @@ tmp/
 
 # Dangling embedded repo removed (no .gitmodules); keep it out of the index
 docs/
+
+# Swift Package Manager (root manifest vends SDKs/caesar-link-swift)
+.build/
+.swiftpm/
+Package.resolved

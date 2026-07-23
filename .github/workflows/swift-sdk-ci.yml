@@ -6,11 +6,13 @@ on:
   push:
     branches: [main]
     paths:
+      - "Package.swift"
       - "SDKs/caesar-link-swift/**"
       - "packages/link-sdk/vectors/**"
       - ".github/workflows/swift-sdk-ci.yml"
   pull_request:
     paths:
+      - "Package.swift"
       - "SDKs/caesar-link-swift/**"
       - "packages/link-sdk/vectors/**"
       - ".github/workflows/swift-sdk-ci.yml"
@@ -26,6 +28,7 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      # Root manifest vends CaesarLinkKit from SDKs/caesar-link-swift, so build from the repo
+      # root — that is also how consumers resolve it.
       - name: Test
-        working-directory: SDKs/caesar-link-swift
         run: swift test
