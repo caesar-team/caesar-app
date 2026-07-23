@@ -1,0 +1,31 @@
+name: Swift SDK CI
+
+# Runs on changes to the kit *and* to the shared vectors: regenerating the TypeScript
+# vectors must fail here if the Swift implementation no longer matches them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "SDKs/caesar-link-swift/**"
+      - "packages/link-sdk/vectors/**"
+      - ".github/workflows/swift-sdk-ci.yml"
+  pull_request:
+    paths:
+      - "SDKs/caesar-link-swift/**"
+      - "packages/link-sdk/vectors/**"
+      - ".github/workflows/swift-sdk-ci.yml"
+
+jobs:
+  test:
+    # Needs a macOS runner for CryptoKit — skip on the mirrored Gitea runners (Linux only).
+    if: ${{ startsWith(github.server_url, 'https://github.com') }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Test
+        working-directory: SDKs/caesar-link-swift
+        run: swift test
