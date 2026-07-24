@@ -1,8 +1,10 @@
 import type { SharePayload, SharedFile } from "@caesar/link-sdk";
 import { type CSSProperties, useEffect, useState } from "react";
+import { AttachmentPreview } from "../components/AttachmentPreview.js";
 import { Shell } from "../components/Layout.js";
 import { t } from "../i18n.js";
 import { ApiError, type MetaResult } from "../lib/api.js";
+import { isMarkdown, isPDF } from "../lib/markdown.js";
 import { fetchAndOpen, fetchMeta, isPasswordProtected } from "../lib/share.js";
 
 type State = "loading" | "password" | "wrong" | "gate" | "text" | "file" | "unavailable" | "error";
@@ -406,6 +408,18 @@ export function View() {
   if (state === "file" && payload?.type === "file") {
     const files = payload.files;
     const multi = files.length > 1;
+
+    // A single Markdown or PDF attachment is worth reading in place rather than making the
+    // recipient download a file first. Anything else keeps the file-card list.
+    const only = files.length === 1 ? files[0] : undefined;
+    if (only && (isMarkdown(only.name, only.mime) || isPDF(only.name, only.mime))) {
+      return (
+        <Shell>
+          <AttachmentPreview file={only} onDownload={() => downloadFile(only)} />
+        </Shell>
+      );
+    }
+
     return (
       <Shell>
         <div className="anim" style={{ width: "100%", maxWidth: 460, margin: "0 auto" }}>
