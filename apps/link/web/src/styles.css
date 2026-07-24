@@ -310,3 +310,14 @@ select {
   font-style: normal;
   color: var(--fg);
 }
+
+/* Pages drawn by pdf.js: white sheets sitting on the dark viewer background. */
+.pdf-page canvas {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  border-radius: 8px;
+}
+.pdf-page + .pdf-page {
+  margin-top: 10px;
+}
