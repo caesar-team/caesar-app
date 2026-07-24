@@ -8,7 +8,14 @@ const config = loadConfig(process.env);
 const store = new ShareStore(`${config.dataDir}/link.db`, config.dataDir);
 const app = createApp(store, config);
 
-const sweepTimer = setInterval(() => store.sweep(Date.now()), HOUR_MS);
+// Run once at boot too: a server that was down over a retention boundary must not wait
+// an hour before honouring it.
+store.sweep(Date.now(), config.retentionSeconds * 1000);
+
+const sweepTimer = setInterval(
+  () => store.sweep(Date.now(), config.retentionSeconds * 1000),
+  HOUR_MS
+);
 sweepTimer.unref();
 
 Bun.serve({
