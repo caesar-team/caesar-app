@@ -1,7 +1,12 @@
 import type { SharedFile } from "@caesar/link-sdk";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { t } from "../i18n.js";
-import { isPDF, renderMarkdown } from "../lib/markdown.js";
+import { isPDF } from "../lib/attachmentType.js";
+
+// The Markdown pipeline is the heaviest thing in the app; keep it out of the main bundle.
+const MarkdownBody = lazy(() =>
+  import("./MarkdownBody.js").then((m) => ({ default: m.MarkdownBody }))
+);
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -112,7 +117,11 @@ export function AttachmentPreview({
           }}
         />
       ) : (
-        <div style={{ ...card, color: "var(--fg)", fontSize: 14 }}>{renderMarkdown(text)}</div>
+        <div style={{ ...card, color: "var(--fg)", fontSize: 14 }}>
+          <Suspense fallback={<div style={{ color: "var(--fg-2)" }}>{t("view.decrypting")}</div>}>
+            <MarkdownBody source={text} />
+          </Suspense>
+        </div>
       )}
 
       <div style={{ display: "flex", gap: 10, marginTop: 14 }}>

@@ -4,7 +4,7 @@ import { AttachmentPreview } from "../components/AttachmentPreview.js";
 import { Shell } from "../components/Layout.js";
 import { t } from "../i18n.js";
 import { ApiError, type MetaResult } from "../lib/api.js";
-import { isMarkdown, isPDF } from "../lib/markdown.js";
+import { isMarkdown, isPDF } from "../lib/attachmentType.js";
 import { fetchAndOpen, fetchMeta, isPasswordProtected } from "../lib/share.js";
 
 type State = "loading" | "password" | "wrong" | "gate" | "text" | "file" | "unavailable" | "error";

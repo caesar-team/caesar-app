@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isMarkdown, isPDF, renderMarkdown } from "./markdown.js";
+import { isMarkdown, isPDF } from "./attachmentType.js";
+import { renderMarkdown } from "./markdown.js";
 
 // renderMarkdown returns a node array; wrap it so renderToStaticMarkup has a single root.
 const html = (source: string) => renderToStaticMarkup(<div>{renderMarkdown(source)}</div>);
@@ -26,29 +27,58 @@ describe("markdown rendering", () => {
   test("keeps paragraphs separate", () => {
     expect(html("a\n\nb").match(/<p/g)?.length).toBe(2);
   });
+
+  // The reason for moving off the hand-written renderer: real documents use GFM.
+  test("renders GFM tables", () => {
+    const out = html("| Time | Who |\n| --- | --- |\n| 00:00 | You |\n");
+    expect(out).toContain("<table");
+    expect(out).toContain("<th");
+    expect(out).toContain("<td");
+    expect(out).toContain("00:00");
+  });
+
+  test("renders nested lists", () => {
+    const out = html("- outer\n  - inner\n");
+    expect(out).toContain("inner");
+    expect((out.match(/<ul/g) ?? []).length).toBeGreaterThan(1);
+  });
+
+  test("handles emphasis inside words without mangling", () => {
+    expect(html("snake_case_name")).toContain("snake_case_name");
+  });
 });
 
 // The content is authored by whoever created the link, and this page holds the decrypted
 // plaintext *and* the key (in location.hash). Markup in the source must never become
 // markup on the page.
 describe("untrusted input", () => {
-  test("raw HTML is escaped, not executed", () => {
+  // remark-rehype runs without allowDangerousHtml, so raw HTML nodes are dropped rather
+  // than escaped into text — stricter than escaping, and nothing reaches the DOM.
+  test("raw HTML is dropped, not executed", () => {
     const out = html("<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>");
-    expect(out).not.toContain("<script>");
+    expect(out).not.toContain("<script");
     expect(out).not.toContain("<img");
-    expect(out).toContain("&lt;script&gt;");
+    expect(out).not.toContain("onerror");
   });
 
-  test("javascript: links lose their target", () => {
+  test("inline HTML in a paragraph is dropped but the prose survives", () => {
+    const out = html("hello <b onmouseover=alert(1)>there</b> friend");
+    expect(out).not.toContain("<b ");
+    expect(out).not.toContain("onmouseover");
+    expect(out).toContain("hello");
+    expect(out).toContain("friend");
+  });
+
+  test("javascript: links are not linked, label kept", () => {
     const out = html("[click](javascript:alert(1))");
     expect(out).not.toContain("javascript:");
-    expect(out).not.toContain("<a ");
+    expect(out).not.toContain("href");
     expect(out).toContain("click");
   });
 
-  test("data: links lose their target", () => {
+  test("data: links are not linked", () => {
     const out = html("[x](data:text/html;base64,PHNjcmlwdD4=)");
-    expect(out).not.toContain("<a ");
+    expect(out).not.toContain("href");
     expect(out).not.toContain("data:text/html");
   });
 
