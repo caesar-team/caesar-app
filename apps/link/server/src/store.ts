@@ -239,7 +239,9 @@ export class ShareStore {
       if (modified > cutoff) {
         continue;
       }
-      const row = this.db.query<{ id: string }, [string]>("SELECT id FROM shares WHERE id = ?").get(name);
+      const row = this.db
+        .query<{ id: string }, [string]>("SELECT id FROM shares WHERE id = ?")
+        .get(name);
       if (row === null) {
         this.deleteBlobFile(path);
       }
