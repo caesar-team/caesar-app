@@ -91,6 +91,7 @@ const en: Record<string, string> = {
   "view.download": "↓ Download file",
   "view.download_all": "↓ Download all files",
   "view.decrypted_suffix": "decrypted",
+  "view.no_preview": "This file can't be previewed here — download it to open.",
   "view.file_note": "The name came from inside the encrypted payload. This link is now spent.",
   "view.unavailable": "This link is no longer available",
   "view.unavailable_sub":
@@ -184,6 +185,7 @@ const ru: Record<string, string> = {
   "view.download": "↓ Скачать файл",
   "view.download_all": "↓ Скачать все файлы",
   "view.decrypted_suffix": "расшифровано",
+  "view.no_preview": "Этот файл нельзя показать здесь — скачайте, чтобы открыть.",
   "view.file_note": "Имя пришло изнутри зашифрованных данных. Ссылка теперь потрачена.",
   "view.unavailable": "Эта ссылка больше недоступна",
   "view.unavailable_sub":

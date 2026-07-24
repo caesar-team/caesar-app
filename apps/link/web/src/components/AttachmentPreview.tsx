@@ -8,6 +8,12 @@ const MarkdownBody = lazy(() =>
   import("./MarkdownBody.js").then((m) => ({ default: m.MarkdownBody }))
 );
 
+/** `%PDF-`, optionally after the leading junk some generators emit. */
+function hasPDFSignature(data: Uint8Array): boolean {
+  const head = new TextDecoder("latin1").decode(data.subarray(0, 1024));
+  return head.includes("%PDF-");
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -32,12 +38,21 @@ export function AttachmentPreview({
   file: SharedFile;
   onDownload: () => void;
 }) {
-  const pdf = isPDF(file.name, file.mime);
+  // Trust the bytes, not the sender's labelling: only a real %PDF- signature gets the
+  // PDF treatment. Anything else falls back to the Markdown/text body, so a file merely
+  // *named* .pdf can never pick the branch that embeds it as a document.
+  const claimsPDF = isPDF(file.name, file.mime);
+  const pdf = claimsPDF && hasPDFSignature(file.data);
+  // Named .pdf but not actually one: refuse to preview rather than decoding the bytes as
+  // text and rendering binary noise as Markdown.
+  const unpreviewable = claimsPDF && !pdf;
   const [copied, setCopied] = useState(false);
 
   // Blob URLs leak until revoked; tie the lifetime to this component.
   const objectURL = useMemo(() => {
     if (!pdf) return null;
+    // The type is ours, not the sender's: Chrome honours it for blob URLs, so the bytes
+    // are handed to the built-in PDF viewer and can never be interpreted as HTML.
     return URL.createObjectURL(new Blob([file.data as BlobPart], { type: "application/pdf" }));
   }, [pdf, file.data]);
 
@@ -47,7 +62,10 @@ export function AttachmentPreview({
     };
   }, [objectURL]);
 
-  const text = useMemo(() => (pdf ? "" : new TextDecoder().decode(file.data)), [pdf, file.data]);
+  const text = useMemo(
+    () => (claimsPDF ? "" : new TextDecoder().decode(file.data)),
+    [claimsPDF, file.data]
+  );
 
   async function copyText() {
     await navigator.clipboard.writeText(text);
@@ -101,13 +119,14 @@ export function AttachmentPreview({
       </div>
 
       {pdf && objectURL ? (
-        // Fully sandboxed: the document came from whoever created the link, so it gets no
-        // scripts, no same-origin, no navigation. Browsers render PDFs with their built-in
-        // viewer under these restrictions; if one refuses, Download still works.
+        // No `sandbox` attribute on purpose. Chrome refuses to run its built-in PDF viewer
+        // inside a sandboxed frame — measured: `sandbox=""` and `sandbox="allow-scripts"`
+        // both render nothing at all, which is why this previewed as a broken document.
+        // Safety comes from the payload instead: the bytes start with %PDF-, and the blob
+        // MIME we set forces the PDF viewer, so there is no HTML parsing path to abuse.
         <iframe
           src={objectURL}
           title={file.name}
-          sandbox=""
           style={{
             width: "100%",
             height: 520,
@@ -116,6 +135,10 @@ export function AttachmentPreview({
             background: "var(--surface-2)",
           }}
         />
+      ) : unpreviewable ? (
+        <div style={{ ...card, color: "var(--fg-2)", fontSize: 13.5, textAlign: "center" }}>
+          {t("view.no_preview")}
+        </div>
       ) : (
         <div style={{ ...card, color: "var(--fg)", fontSize: 14 }}>
           <Suspense fallback={<div style={{ color: "var(--fg-2)" }}>{t("view.decrypting")}</div>}>
@@ -128,7 +151,7 @@ export function AttachmentPreview({
         <button type="button" onClick={onDownload} style={primary}>
           {t("view.download")}
         </button>
-        {!pdf && (
+        {!claimsPDF && (
           <button type="button" onClick={copyText} style={secondary}>
             {copied ? t("view.copied") : t("view.copy_text")}
           </button>
