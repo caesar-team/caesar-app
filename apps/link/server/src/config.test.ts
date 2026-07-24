@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type Config, loadConfig } from "./config";
 
+const RETENTION_SECONDS = 30 * 24 * 3600;
+
 describe("loadConfig", () => {
   test("returns defaults when env is empty", () => {
     const config: Config = loadConfig({});
@@ -46,4 +48,21 @@ describe("loadConfig", () => {
     expect(loadConfig({ TRUST_PROXY: "false" }).trustProxy).toBe(false);
     expect(loadConfig({ TRUST_PROXY: "yes" }).trustProxy).toBe(false);
   });
+});
+
+// Retention is the product promise ("nothing older than 30 days"); a TTL above it would
+// let a share outlive the guarantee, so the config refuses to start rather than silently
+// truncating someone's intent.
+test("rejects a MAX_TTL above the retention ceiling", () => {
+  expect(() => loadConfig({ MAX_TTL: String(RETENTION_SECONDS + 1) })).toThrow(/retention/i);
+});
+
+test("accepts a MAX_TTL at the ceiling", () => {
+  expect(loadConfig({ MAX_TTL: String(RETENTION_SECONDS) }).maxTtl).toBe(RETENTION_SECONDS);
+});
+
+test("defaults to the 30 day ceiling", () => {
+  const config = loadConfig({});
+  expect(config.maxTtl).toBe(RETENTION_SECONDS);
+  expect(config.retentionSeconds).toBe(RETENTION_SECONDS);
 });

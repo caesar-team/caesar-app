@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CreateInput, ShareStore } from "./store";
 
 const NOW = 1_000_000_000_000;
 const SECOND = 1000;
+const DAY = 24 * 3600 * SECOND;
+const RETENTION_MS = 30 * DAY;
 
 let dataDir: string;
 let store: ShareStore;
@@ -146,5 +148,39 @@ describe("ShareStore", () => {
 
     expect(store.getMeta(live.id, NOW)).not.toBeNull();
     expect(existsSync(join(dataDir, "blobs", live.id))).toBe(true);
+  });
+
+  // Retention is a promise about *stored bytes*, so it cannot be conditional on a row's
+  // own expiry: a record written by an older build (or a corrupted expires_at) could
+  // otherwise sit on disk forever. The sweep therefore also drops anything created
+  // longer than the retention window ago, whatever its expiry says.
+  test("sweep drops rows older than the retention window even when unexpired", () => {
+    const legacy = store.create(makeInput({ ttlSeconds: 400 * 24 * 3600 }));
+    const recent = store.create(makeInput({ ttlSeconds: 400 * 24 * 3600, now: NOW + 29 * DAY }));
+
+    const sweptAt = NOW + 31 * DAY;
+    expect(store.getMeta(legacy.id, sweptAt)).not.toBeNull();
+
+    const count = store.sweep(sweptAt, RETENTION_MS);
+    expect(count).toBe(1);
+    expect(store.getMeta(legacy.id, sweptAt)).toBeNull();
+    expect(existsSync(join(dataDir, "blobs", legacy.id))).toBe(false);
+
+    expect(store.getMeta(recent.id, sweptAt)).not.toBeNull();
+  });
+
+  test("sweep removes orphaned blob files older than the retention window", () => {
+    const orphan = join(dataDir, "blobs", "orphan-from-a-crash");
+    writeFileSync(orphan, new Uint8Array([9, 9, 9]));
+    utimesSync(orphan, new Date(NOW), new Date(NOW));
+
+    const fresh = join(dataDir, "blobs", "orphan-just-written");
+    writeFileSync(fresh, new Uint8Array([1]));
+    utimesSync(fresh, new Date(NOW + 31 * DAY), new Date(NOW + 31 * DAY));
+
+    store.sweep(NOW + 31 * DAY, RETENTION_MS);
+
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
   });
 });

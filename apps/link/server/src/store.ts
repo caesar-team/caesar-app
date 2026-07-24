@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 
@@ -36,6 +36,9 @@ function sha256hex(token: string): string {
 }
 
 export class ShareStore {
+  /** Hard ceiling on how long any ciphertext may sit on disk: 30 days. */
+  static readonly defaultRetentionMs = 30 * 24 * 3600 * 1000;
+
   private readonly db: Database;
   private readonly blobsDir: string;
 
@@ -192,16 +195,55 @@ export class ShareStore {
     return true;
   }
 
-  sweep(now: number): number {
+  /**
+   * Deletes what must no longer exist and returns how many rows went.
+   *
+   * Two rules, deliberately independent. The first is the share's own expiry. The second
+   * is the retention ceiling: anything created longer than `retentionMs` ago goes too,
+   * *whatever* its expiry claims. Retention is a promise about bytes on disk, so it can't
+   * be left at the mercy of a value an older build — or a bug — wrote into the row.
+   *
+   * Orphaned blob files are swept on the same rule: a crash between writing the file and
+   * committing the row would otherwise leave ciphertext behind with nothing pointing at it.
+   */
+  sweep(now: number, retentionMs: number = ShareStore.defaultRetentionMs): number {
+    const cutoff = now - retentionMs;
     const rows = this.db
-      .query<Pick<ShareRow, "id" | "blob_path">, [number]>(
-        "SELECT id, blob_path FROM shares WHERE expires_at <= ?"
+      .query<Pick<ShareRow, "id" | "blob_path">, [number, number]>(
+        "SELECT id, blob_path FROM shares WHERE expires_at <= ? OR created_at <= ?"
       )
-      .all(now);
+      .all(now, cutoff);
     for (const row of rows) {
       this.deleteRowAndFile(row.id, row.blob_path);
     }
+    this.sweepOrphanBlobs(cutoff);
     return rows.length;
+  }
+
+  /** Blob files with no row, last written before the cutoff. */
+  private sweepOrphanBlobs(cutoff: number): void {
+    let names: string[];
+    try {
+      names = readdirSync(this.blobsDir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = join(this.blobsDir, name);
+      let modified: number;
+      try {
+        modified = statSync(path).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (modified > cutoff) {
+        continue;
+      }
+      const row = this.db.query<{ id: string }, [string]>("SELECT id FROM shares WHERE id = ?").get(name);
+      if (row === null) {
+        this.deleteBlobFile(path);
+      }
+    }
   }
 
   close(): void {
