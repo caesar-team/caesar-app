@@ -15,6 +15,13 @@ const EXPIRY_SECONDS: Record<string, number> = {
   "30d": 2592000,
 };
 
+/**
+ * Height of the taller composer mode — the textarea (148) plus its hint row (15) and the
+ * gap between them (12). The empty dropzone is 159, so without reserving this the whole
+ * form below shifts 16px on every Text/File toggle.
+ */
+const COMPOSER_MIN_HEIGHT = 175;
+
 const PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
 
 function generatePassword(len = 20): string {
@@ -539,166 +546,171 @@ export function Create() {
           </button>
         </div>
 
-        {mode === "text" ? (
-          <>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={5}
-              placeholder={t("create.text_placeholder")}
-              aria-label={t("create.title")}
-              style={{ ...surfaceInput, minHeight: 132 }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: 7,
-                fontSize: 11.5,
-                color: "var(--fg-2)",
-              }}
-            >
-              <span>{t("create.text_hint")}</span>
-              <span className="mono">{text.length}</span>
-            </div>
-          </>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {files.map((f, i) => (
-              <div
-                key={`${f.name}-${f.size}-${i}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 14,
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
-                  borderRadius: 16,
-                  padding: "15px 16px",
-                }}
-              >
-                <div
-                  className="mono"
-                  style={{
-                    width: 42,
-                    height: 50,
-                    borderRadius: 8,
-                    background: "var(--primary-soft)",
-                    border: "1px solid var(--line)",
-                    display: "flex",
-                    alignItems: "flex-end",
-                    justifyContent: "center",
-                    paddingBottom: 6,
-                    fontSize: 10,
-                    color: "var(--primary)",
-                    fontWeight: 600,
-                    flex: "none",
-                  }}
-                >
-                  {(f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 14.5,
-                      color: "var(--fg)",
-                      fontWeight: 500,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {f.name}
-                  </div>
-                  <div
-                    className="mono"
-                    style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 2 }}
-                  >
-                    {formatBytes(f.size)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-                  aria-label={t("create.remove_file")}
-                  style={{
-                    color: "var(--fg-2)",
-                    width: 32,
-                    height: 32,
-                    borderRadius: 999,
-                    border: "1px solid var(--line)",
-                    flex: "none",
-                    fontSize: 14,
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            <label
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                if (e.dataTransfer.files.length > 0) {
-                  setFiles((prev) => [...prev, ...Array.from(e.dataTransfer.files)]);
-                }
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              style={{
-                display: "block",
-                textAlign: "center",
-                cursor: "pointer",
-                background: dragging ? "var(--primary-soft)" : "var(--surface-2)",
-                border: `1.5px dashed ${dragging ? "var(--primary)" : "var(--line)"}`,
-                borderRadius: 16,
-                padding: files.length > 0 ? "18px 16px" : "30px 16px",
-              }}
-            >
-              <input
-                type="file"
-                multiple
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    setFiles((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
-                  }
-                  e.target.value = "";
-                }}
-                style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
-                aria-label={t("create.drag")}
+        {/* One reserved height for both modes: the text area (with its hint row) is
+            taller than the empty dropzone, and without this the whole form below
+            jumps 16px every time you toggle Text/File. */}
+        <div style={{ minHeight: COMPOSER_MIN_HEIGHT }}>
+          {mode === "text" ? (
+            <>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={5}
+                placeholder={t("create.text_placeholder")}
+                aria-label={t("create.title")}
+                style={{ ...surfaceInput, minHeight: 132 }}
               />
               <div
                 style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 14,
-                  background: "var(--primary-soft)",
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  margin: "0 auto 12px",
-                  fontSize: 20,
-                  color: "var(--primary)",
+                  justifyContent: "space-between",
+                  marginTop: 7,
+                  fontSize: 11.5,
+                  color: "var(--fg-2)",
                 }}
               >
-                ↑
+                <span>{t("create.text_hint")}</span>
+                <span className="mono">{text.length}</span>
               </div>
-              <div style={{ fontSize: 15, color: "var(--fg)", fontWeight: 500 }}>
-                {t("create.drag")}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 3 }}>
-                {t("create.browse_1")}
-                <span style={{ color: "var(--primary)", fontWeight: 500 }}>
-                  {t("create.browse_link")}
-                </span>
-                {t("create.browse_2")}
-              </div>
-            </label>
-          </div>
-        )}
+            </>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {files.map((f, i) => (
+                <div
+                  key={`${f.name}-${f.size}-${i}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 16,
+                    padding: "15px 16px",
+                  }}
+                >
+                  <div
+                    className="mono"
+                    style={{
+                      width: 42,
+                      height: 50,
+                      borderRadius: 8,
+                      background: "var(--primary-soft)",
+                      border: "1px solid var(--line)",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      paddingBottom: 6,
+                      fontSize: 10,
+                      color: "var(--primary)",
+                      fontWeight: 600,
+                      flex: "none",
+                    }}
+                  >
+                    {(f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 14.5,
+                        color: "var(--fg)",
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {f.name}
+                    </div>
+                    <div
+                      className="mono"
+                      style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 2 }}
+                    >
+                      {formatBytes(f.size)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label={t("create.remove_file")}
+                    style={{
+                      color: "var(--fg-2)",
+                      width: 32,
+                      height: 32,
+                      borderRadius: 999,
+                      border: "1px solid var(--line)",
+                      flex: "none",
+                      fontSize: 14,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <label
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  if (e.dataTransfer.files.length > 0) {
+                    setFiles((prev) => [...prev, ...Array.from(e.dataTransfer.files)]);
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                style={{
+                  display: "block",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  background: dragging ? "var(--primary-soft)" : "var(--surface-2)",
+                  border: `1.5px dashed ${dragging ? "var(--primary)" : "var(--line)"}`,
+                  borderRadius: 16,
+                  padding: files.length > 0 ? "18px 16px" : "30px 16px",
+                }}
+              >
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setFiles((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
+                    }
+                    e.target.value = "";
+                  }}
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+                  aria-label={t("create.drag")}
+                />
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 14,
+                    background: "var(--primary-soft)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 12px",
+                    fontSize: 20,
+                    color: "var(--primary)",
+                  }}
+                >
+                  ↑
+                </div>
+                <div style={{ fontSize: 15, color: "var(--fg)", fontWeight: 500 }}>
+                  {t("create.drag")}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 3 }}>
+                  {t("create.browse_1")}
+                  <span style={{ color: "var(--primary)", fontWeight: 500 }}>
+                    {t("create.browse_link")}
+                  </span>
+                  {t("create.browse_2")}
+                </div>
+              </label>
+            </div>
+          )}
+        </div>
 
         <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -782,60 +794,66 @@ export function Create() {
             </div>
           </div>
 
-          {viewsMode === "count" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: -4 }}>
-              <span style={{ fontSize: 13, color: "var(--fg-2)" }}>
-                {t("create.destroy_after")}
-              </span>
-              <div
+          {/* Always rendered so choosing Once / Number / infinite does not push the rest of
+              the form down by ~50px. visibility:hidden also keeps it out of the tab order. */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginTop: -4,
+              visibility: viewsMode === "count" ? "visible" : "hidden",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "var(--fg-2)" }}>{t("create.destroy_after")}</span>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 2,
+                background: "var(--surface-2)",
+                border: "1px solid var(--line)",
+                borderRadius: 999,
+                padding: 3,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setViewCount((v) => Math.max(2, v - 1))}
+                aria-label="−"
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 2,
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--line)",
+                  width: 30,
+                  height: 30,
                   borderRadius: 999,
-                  padding: 3,
+                  color: "var(--fg)",
+                  fontSize: 16,
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setViewCount((v) => Math.max(2, v - 1))}
-                  aria-label="−"
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 999,
-                    color: "var(--fg)",
-                    fontSize: 16,
-                  }}
-                >
-                  −
-                </button>
-                <span
-                  className="mono"
-                  style={{ minWidth: 30, textAlign: "center", fontSize: 14, color: "var(--fg)" }}
-                >
-                  {viewCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setViewCount((v) => Math.min(99, v + 1))}
-                  aria-label="+"
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 999,
-                    color: "var(--fg)",
-                    fontSize: 16,
-                  }}
-                >
-                  +
-                </button>
-              </div>
-              <span style={{ fontSize: 13, color: "var(--fg-2)" }}>{t("create.views_word")}</span>
+                −
+              </button>
+              <span
+                className="mono"
+                style={{ minWidth: 30, textAlign: "center", fontSize: 14, color: "var(--fg)" }}
+              >
+                {viewCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setViewCount((v) => Math.min(99, v + 1))}
+                aria-label="+"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 999,
+                  color: "var(--fg)",
+                  fontSize: 16,
+                }}
+              >
+                +
+              </button>
             </div>
-          )}
+            <span style={{ fontSize: 13, color: "var(--fg-2)" }}>{t("create.views_word")}</span>
+          </div>
 
           <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 16 }}>
             <div
