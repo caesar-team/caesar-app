@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 
 const fromHere = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
+
 export default defineConfig({
   base: "/",
   plugins: [react()],

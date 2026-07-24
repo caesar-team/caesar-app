@@ -1,5 +1,5 @@
 import type { SharedFile } from "@caesar/link-sdk";
-import { type CSSProperties, Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, Suspense, lazy, useMemo, useState } from "react";
 import { t } from "../i18n.js";
 import { isPDF } from "../lib/attachmentType.js";
 
@@ -7,6 +7,9 @@ import { isPDF } from "../lib/attachmentType.js";
 const MarkdownBody = lazy(() =>
   import("./MarkdownBody.js").then((m) => ({ default: m.MarkdownBody }))
 );
+
+// pdf.js is heavier still, and only a PDF share needs it.
+const PdfBody = lazy(() => import("./PdfBody.js").then((m) => ({ default: m.PdfBody })));
 
 /** `%PDF-`, optionally after the leading junk some generators emit. */
 function hasPDFSignature(data: Uint8Array): boolean {
@@ -47,20 +50,6 @@ export function AttachmentPreview({
   // text and rendering binary noise as Markdown.
   const unpreviewable = claimsPDF && !pdf;
   const [copied, setCopied] = useState(false);
-
-  // Blob URLs leak until revoked; tie the lifetime to this component.
-  const objectURL = useMemo(() => {
-    if (!pdf) return null;
-    // The type is ours, not the sender's: Chrome honours it for blob URLs, so the bytes
-    // are handed to the built-in PDF viewer and can never be interpreted as HTML.
-    return URL.createObjectURL(new Blob([file.data as BlobPart], { type: "application/pdf" }));
-  }, [pdf, file.data]);
-
-  useEffect(() => {
-    return () => {
-      if (objectURL) URL.revokeObjectURL(objectURL);
-    };
-  }, [objectURL]);
 
   const text = useMemo(
     () => (claimsPDF ? "" : new TextDecoder().decode(file.data)),
@@ -118,23 +107,12 @@ export function AttachmentPreview({
         </span>
       </div>
 
-      {pdf && objectURL ? (
-        // No `sandbox` attribute on purpose. Chrome refuses to run its built-in PDF viewer
-        // inside a sandboxed frame — measured: `sandbox=""` and `sandbox="allow-scripts"`
-        // both render nothing at all, which is why this previewed as a broken document.
-        // Safety comes from the payload instead: the bytes start with %PDF-, and the blob
-        // MIME we set forces the PDF viewer, so there is no HTML parsing path to abuse.
-        <iframe
-          src={objectURL}
-          title={file.name}
-          style={{
-            width: "100%",
-            height: 520,
-            border: "1px solid var(--line)",
-            borderRadius: 16,
-            background: "var(--surface-2)",
-          }}
-        />
+      {pdf ? (
+        <div style={{ ...card, padding: 12 }}>
+          <Suspense fallback={<div style={{ color: "var(--fg-2)" }}>{t("view.decrypting")}</div>}>
+            <PdfBody data={file.data} />
+          </Suspense>
+        </div>
       ) : unpreviewable ? (
         <div style={{ ...card, color: "var(--fg-2)", fontSize: 13.5, textAlign: "center" }}>
           {t("view.no_preview")}
