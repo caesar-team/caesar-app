@@ -2,7 +2,11 @@
   "name": "caesar-app",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["apps/*", "apps/*/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "apps/*/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -11,6 +15,7 @@
     "test": "turbo run test",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "check:ci": "bash scripts/check-ci.sh",
     "clean": "turbo clean && rm -rf node_modules"
   },
   "devDependencies": {

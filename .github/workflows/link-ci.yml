@@ -33,29 +33,7 @@ jobs:
       - name: Install deps
         run: bun install --frozen-lockfile
 
-      # Build the workspace crypto/sdk dist (their .d.ts + .js feed the web
-      # typecheck and the link-sdk/web tests). --build --force guarantees emit
-      # even if a composite .tsbuildinfo is stale.
-      - name: Build workspace packages
-        run: |
-          (cd packages/crypto && bunx tsc --build --force)
-          (cd packages/link-sdk && bunx tsc --build --force)
-
-      - name: Build web bundle
-        run: cd apps/link/web && bunx vite build
-
-      - name: Typecheck server
-        run: bun run --filter @caesar/link-server build
-
-      - name: Test
-        run: |
-          (cd packages/crypto && bun test)
-          (cd packages/link-sdk && bun test)
-          (cd apps/link/server && bun test)
-          (cd apps/link/web && bun test src/lib)
-
-      - name: Lint (Biome — pinned to the repo config's schema)
-        run: >
-          bunx @biomejs/biome@1.9.4 check
-          packages/crypto/src packages/link-sdk/src
-          apps/link/server/src apps/link/web/src
+      # Single source of truth for what "checks pass" means: the same script developers
+      # run as `bun run check:ci`, so the two cannot drift.
+      - name: Run checks
+        run: bun run check:ci
