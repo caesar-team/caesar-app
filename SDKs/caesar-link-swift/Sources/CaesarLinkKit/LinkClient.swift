@@ -43,17 +43,10 @@ public struct LinkClient {
         )
         let meta = String(decoding: metaData, as: UTF8.self)
 
-        var fields: [(name: String, value: String)] = [
-            ("meta", meta),
-            ("ttl", String(ttlSeconds)),
-        ]
-        // An empty `views` means unlimited, matching the server's parser.
-        fields.append(("views", views.map(String.init) ?? ""))
-
         let boundary = "caesar-\(UUID().uuidString)"
         let body = Self.multipartBody(
             boundary: boundary,
-            fields: fields,
+            fields: Self.formFields(meta: meta, ttlSeconds: ttlSeconds, views: views),
             file: (name: "blob", filename: "blob.bin", data: bundle.blob.ciphertext)
         )
 
@@ -130,6 +123,22 @@ public struct LinkClient {
             throw LinkError.server(status: http.statusCode, body: String(decoding: data, as: UTF8.self))
         }
         return data
+    }
+
+    /// Builds the non-file form fields.
+    ///
+    /// `views == nil` means unlimited, and the server expresses that as the field being
+    /// **absent** — it rejects an empty value outright ("views must be a positive integer").
+    /// Sending `views=""` is the bug this exists to prevent regressing.
+    static func formFields(meta: String, ttlSeconds: Int, views: Int?) -> [(name: String, value: String)] {
+        var fields: [(name: String, value: String)] = [
+            ("meta", meta),
+            ("ttl", String(ttlSeconds)),
+        ]
+        if let views {
+            fields.append(("views", String(views)))
+        }
+        return fields
     }
 
     private static func multipartBody(
