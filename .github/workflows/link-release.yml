@@ -109,6 +109,10 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
             type=ref,event=tag
+            # Sortable, monotonic tag for Flux image automation: ImagePolicy cannot order
+            # `sha-<hex>` or `latest`, so it needs something it can compare numerically to
+            # decide which build is newer.
+            type=raw,value=main-{{date 'YYYYMMDDHHmmss'}},enable={{is_default_branch}}
 
       - name: Create and push multi-arch manifest
         working-directory: ${{ runner.temp }}/digests
