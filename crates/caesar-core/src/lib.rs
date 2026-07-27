@@ -5,8 +5,10 @@
 //! Крейт не содержит сети, хранилища и UI. Все функции — от байтов к байтам.
 
 pub mod error;
+pub mod keys;
 
 pub use error::{Error, Result};
+pub use keys::{AuthKey, KeyEncryptionKey, MasterKey, RecoveryKey, VaultKey};
 
 /// Версия формата конверта. Меняется только при смене формата шифрования.
 pub const PROTOCOL_VERSION: u8 = 1;
