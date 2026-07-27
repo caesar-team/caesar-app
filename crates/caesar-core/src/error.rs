@@ -34,9 +34,11 @@ pub enum Error {
     #[error("no secure random source available")]
     RandomSourceUnavailable,
 
-    /// Сервер прислал параметры KDF слабее вкомпилированного пола.
-    #[error("kdf parameters below the compiled-in floor: m={m_cost}, t={t_cost}, p={p_cost}")]
-    WeakKdfParams {
+    /// Параметры KDF вне вкомпилированного диапазона: слишком слабые (сервер
+    /// пытается получить брутфорсимый `auth_key`) либо слишком тяжёлые
+    /// (аллокация на терабайты или счёт на десятки суток).
+    #[error("kdf parameters out of the compiled-in range: m={m_cost}, t={t_cost}, p={p_cost}")]
+    KdfParamsOutOfRange {
         m_cost: u32,
         t_cost: u32,
         p_cost: u32,
