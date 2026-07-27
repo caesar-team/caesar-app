@@ -10,7 +10,11 @@ license = "Proprietary"
 [workspace.dependencies]
 argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+# `zeroize` приходит из default-фич x25519-dalek, но именно на нём держится
+# затирание клэмпнутого ключа в `StaticSecret`. Задача 11 будет резать wasm-бандл
+# через `default-features = false` — фича перечислена явно, чтобы это не выключило
+# зачистку молча: ни один тест такого не заметит.
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
 hkdf = "0.12"
 sha2 = { version = "0.10", default-features = false }
 zeroize = { version = "1.8", features = ["derive"] }

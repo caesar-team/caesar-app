@@ -1,7 +1,7 @@
 use crate::aead;
 use crate::keys::{KeyEncryptionKey, VaultKey};
 use crate::{Error, Result};
-use zeroize::{ZeroizeOnDrop, Zeroizing};
+use zeroize::ZeroizeOnDrop;
 
 /// Пара ключей пользователя. Долгоживущая личность: именно она делает
 /// командный доступ возможным без раскрытия VK серверу.
@@ -17,6 +17,19 @@ pub struct UserKeyPair {
     public: [u8; 32],
 }
 
+/// Выводит публичную половину X25519. Единственное место, где приватный ключ
+/// вообще попадает в `StaticSecret`.
+///
+/// `StaticSecret` реализует `ZeroizeOnDrop` не безусловно, а под фичей
+/// `zeroize` крейта: она приходит из его default-фич и потому явно закреплена в
+/// корневом `Cargo.toml`. Без неё клэмпнутая копия ключа осталась бы на стеке.
+fn public_from_secret(secret: &[u8; 32]) -> [u8; 32] {
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    let sk = StaticSecret::from(*secret);
+    PublicKey::from(&sk).to_bytes()
+}
+
 impl UserKeyPair {
     /// Генерирует пару из системного CSPRNG.
     ///
@@ -25,32 +38,43 @@ impl UserKeyPair {
     pub fn generate() -> Result<Self> {
         use rand_core::{OsRng, RngCore};
 
-        // `[u8; 32]` — `Copy`: обычный локальный массив остался бы на стеке
-        // после возврата, и `ZeroizeOnDrop` на `UserKeyPair` затирал бы только
-        // копию. Тот же довод, что у `derive_master_key` в `kdf.rs`.
-        let mut secret = Zeroizing::new([0u8; 32]);
+        // Выход CSPRNG пишется сразу в итоговую структуру, без промежуточного
+        // буфера: копировать нечего, значит и нечему пережить возврат. Та же
+        // форма, что у `generate()` в `keys.rs`.
+        let mut kp = Self {
+            secret: [0u8; 32],
+            public: [0u8; 32],
+        };
         OsRng
-            .try_fill_bytes(secret.as_mut_slice())
+            .try_fill_bytes(&mut kp.secret)
             .map_err(|_| Error::RandomSourceUnavailable)?;
-        Ok(Self::from_secret(*secret))
+        kp.public = public_from_secret(&kp.secret);
+        Ok(kp)
     }
 
     /// Восстанавливает пару по приватному ключу. Публичный всегда выводится
     /// заново, а не принимается снаружи: пара, у которой половинки не сходятся,
     /// не должна существовать.
+    ///
+    /// # Не для биндингов
+    ///
+    /// Принимает произвольные 32 байта и не может отличить ключ от мусора:
+    /// `from_secret([0u8; 32])` даёт валидную пару, которую воспроизведёт кто
+    /// угодно, и сообщить об этом наружу нечем — тип возврата без ошибки.
+    /// Внутри крейта это нужно (генератор векторов задачи 10). Биндинги задач
+    /// 11 и 13 обязаны выставлять только `generate()` и `unwrap_user_key()`;
+    /// ни `from_secret`, ни `try_from_slice` через UniFFI или wasm-bindgen не
+    /// экспортируются.
     pub fn from_secret(secret: [u8; 32]) -> Self {
-        use x25519_dalek::{PublicKey, StaticSecret};
-
-        // `StaticSecret` сам реализует `ZeroizeOnDrop`, поэтому его копия
-        // ключа (уже с клэмпингом) затирается на выходе из функции.
-        let sk = StaticSecret::from(secret);
-        let public = PublicKey::from(&sk).to_bytes();
+        let public = public_from_secret(&secret);
         Self { secret, public }
     }
 
     /// Строит пару из среза произвольной длины. Единственная точка проверки
     /// длины: `unwrap_user_key` и биндинги задач 11 и 13 ходят сюда, а не
     /// заводят свои копии. Зеркалит `try_from_slice` из `keys.rs`.
+    ///
+    /// Наружу не экспортируется по тем же причинам, что и [`Self::from_secret`].
     pub fn try_from_slice(bytes: &[u8]) -> Result<Self> {
         let secret: [u8; 32] = bytes.try_into().map_err(|_| Error::InvalidKeyLength {
             got: bytes.len(),
@@ -105,7 +129,6 @@ pub fn unwrap_vault_key(kek: &KeyEncryptionKey, wrapped: &[u8]) -> Result<VaultK
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::envelope::MIN_ENVELOPE_LEN;
     use crate::kdf::{derive_master_key, key_encryption_key, KdfParams, SALT_LEN};
     use std::collections::BTreeMap;
 
@@ -205,11 +228,16 @@ mod tests {
         // Обёрнутая запись — конверт ровно над 32 байтами ключа, без длин,
         // padding и прочих полей. Эти байты лежат у пользователей на сервере:
         // любое изменение формы делает их нечитаемыми.
+        //
+        // 74 = 2 (заголовок) + 24 (nonce) + 32 (ключ) + 16 (тег). Литерал
+        // намеренный: `MIN_ENVELOPE_LEN + 32` поехало бы следом за константой и
+        // не заметило бы ровно ту правку, ради которой этот тест существует.
+        // Не «упрощать», как и смещения в `envelope.rs`.
         let kek = test_kek();
         let uk = wrap_user_key(&kek, &UserKeyPair::generate().unwrap()).unwrap();
         let vk = wrap_vault_key(&kek, &VaultKey::generate().unwrap()).unwrap();
-        assert_eq!(uk.len(), MIN_ENVELOPE_LEN + 32);
-        assert_eq!(vk.len(), MIN_ENVELOPE_LEN + 32);
+        assert_eq!(uk.len(), 74);
+        assert_eq!(vk.len(), 74);
     }
 
     /// Модель серверного хранилища: имя записи → её байты.
@@ -249,17 +277,11 @@ mod tests {
         let new_kek = kek_for("new pw", [0x99; SALT_LEN]);
         let after = change_password(&before, &old_kek, &new_kek);
 
-        // 1. Пароль действительно сменился: под новым KEK старые обёртки
-        //    не открываются. Без этой проверки тест прошёл бы и на
-        //    `change_password`, которая ничего не делает.
-        assert_eq!(
-            unwrap_vault_key(&new_kek, &before["wrapped_vk"]).unwrap_err(),
-            Error::DecryptionFailed
-        );
-        assert_eq!(
-            unwrap_user_key(&new_kek, &before["wrapped_uk"]).unwrap_err(),
-            Error::DecryptionFailed
-        );
+        // 1. Пароль действительно сменился: старый KEK больше не открывает
+        //    перевёрнутые записи. Реализация, оставившая обёртки под старым
+        //    KEK, провалится здесь.
+        assert!(unwrap_user_key(&old_kek, &after["wrapped_uk"]).is_err());
+        assert!(unwrap_vault_key(&old_kek, &after["wrapped_vk"]).is_err());
 
         // 2. Собственно свойство: изменились ровно две записи из пяти.
         //    Реализация, перешифровывающая айтемы, провалится здесь.
