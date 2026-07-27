@@ -24,6 +24,14 @@ const CHECKSUM_BYTES: usize = 3;
 /// Что именно кодируют символы набора: ключ, следом контрольная сумма.
 const KIT_BYTES: usize = KEY_BYTES + CHECKSUM_BYTES;
 
+// `KIT_SYMBOLS` читается как настройка печатной раскладки, но несущий он.
+// Уменьшить его — значит получить набор, который физически не вмещает ключ:
+// `format` упал бы по индексу (громко и на месте), а вот `parse` вернул бы
+// молча дополненный нулями ключ — ровно та тихая катастрофа, ради которой
+// модуль и написан. Обе стороны кодека здесь же и закрепляются.
+const _: () = assert!(KIT_SYMBOLS * 5 >= KEY_BYTES * 8);
+const _: () = assert!(KIT_SYMBOLS * 5 == KIT_BYTES * 8);
+
 /// Форматирует ключ восстановления для печати: 8 групп по 7 символов.
 ///
 /// Возвращает `Zeroizing<String>`, а не `String`: напечатанный набор — это тот
@@ -36,7 +44,7 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
     // 51 несущего символа разбиралась бы как `Ok` с неверным ключом, и ошибка
     // всплывала бы позже тегом Poly1305 — неотличимо от испорченного конверта
     // или вообще чужой учётной записи. На единственном пути обратно в аккаунт
-    // это разница между «проверьте набор» и глухим отказом расшифровки.
+    // это разница между «проверьте группу 4» и глухим отказом расшифровки.
     //
     // Решение постоянное: набор печатают на бумагу, и с того момента смена
     // смысла этих 24 бит означала бы поддержку обеих кодировок навсегда.
@@ -63,6 +71,7 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
             next += 1;
         }
     }
+    debug_assert_eq!(bits, 0, "kit encoding must not leave a partial symbol");
 
     // Ёмкость точная, поэтому `push` ни разу не перевыделяет буфер и не
     // оставляет в куче незатёртую копию набора.
@@ -78,7 +87,7 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
     printed
 }
 
-/// Разбирает напечатанный Emergency Kit. Дефисы, пробелы и регистр игнорируются.
+/// Разбирает напечатанный Emergency Kit. Разделители и регистр игнорируются.
 ///
 /// Три причины отказа, и все три различимы вызывающим кодом: длина и алфавит
 /// приходят как `InvalidEmergencyKit` с разным текстом, а несошедшаяся
@@ -86,40 +95,25 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
 /// Последнее нужно биндингам, чтобы отличить «вы опечатались» от «этот ключ
 /// не от этого хранилища»: набор синтаксически безупречен в обоих случаях.
 pub fn parse_emergency_kit(input: &str) -> Result<RecoveryKey> {
-    // Байты, а не символы: любой не-ASCII разворачивается в байты `>= 0x80`,
-    // которых нет ни в алфавите, ни среди подстановок, поэтому пройти дальше
-    // он не может ни при какой длине.
-    let cleaned = Zeroizing::new(
-        input
-            .bytes()
-            .filter(|b| !b.is_ascii_whitespace() && *b != b'-')
-            .map(|b| b.to_ascii_uppercase())
-            .collect::<Vec<u8>>(),
-    );
-
-    if cleaned.len() != KIT_SYMBOLS {
-        return Err(Error::InvalidEmergencyKit(format!(
-            "expected {KIT_SYMBOLS} symbols, got {}",
-            cleaned.len()
-        )));
-    }
+    let cleaned = clean_symbols(input)?;
 
     let mut payload = Zeroizing::new([0u8; KIT_BYTES]);
     let mut acc: u32 = 0;
     let mut bits = 0u8;
     let mut next = 0usize;
 
-    for &symbol in cleaned.iter() {
-        acc = (acc << 5) | u32::from(symbol_value(symbol)?);
+    for (index, &symbol) in cleaned.iter().enumerate() {
+        acc = (acc << 5) | u32::from(symbol_value(symbol, index)?);
         bits += 5;
         if bits >= 8 {
             bits -= 8;
-            if next < payload.len() {
-                payload[next] = (acc >> bits) as u8;
-                next += 1;
-            }
+            payload[next] = (acc >> bits) as u8;
+            next += 1;
         }
     }
+    // Страховка к константам выше: если набор перестанет вмещать ключ целиком,
+    // сюда доедет частично заполненный `payload`, а не молчаливый нулевой хвост.
+    debug_assert_eq!(next, payload.len(), "kit does not carry a full key");
 
     let mut key = Zeroizing::new([0u8; KEY_BYTES]);
     key.copy_from_slice(&payload[..KEY_BYTES]);
@@ -147,6 +141,68 @@ fn key_checksum(key: &[u8; KEY_BYTES]) -> [u8; CHECKSUM_BYTES] {
     checksum
 }
 
+/// Разделитель, который человек мог принести вместе с набором.
+///
+/// `is_ascii_whitespace` тут мало: набор, скопированный из документа, приезжает
+/// с неразрывными пробелами и с дефисами, которые автозамена превратила в тире.
+/// Без этого фильтра такой ввод отвергался бы по длине — «ожидалось 56
+/// символов, получено 77», то есть формально верно и совершенно сбивающе с
+/// толку для того, кто эти 56 символов только что пересчитал глазами.
+fn is_separator(character: char) -> bool {
+    character.is_whitespace()
+        || character == '-'
+        || matches!(character, '\u{2010}'..='\u{2015}' | '\u{2212}')
+}
+
+/// Вычищает разделители, приводит к верхнему регистру и проверяет длину.
+fn clean_symbols(input: &str) -> Result<Zeroizing<Vec<u8>>> {
+    // Ёмкость набирается сразу и не растёт никогда: за границей набора символы
+    // только считаются. `collect` по итератору с `filter` так не умеет — там
+    // нижняя граница `size_hint` равна нулю, и буфер растёт 8 → 16 → 32 → 64,
+    // оставляя в куче три незатёртых куска начала ключа. То же самое сделал бы
+    // и `extend` на входе длиннее набора. В wasm это особенно неприятно:
+    // линейная память операционной системе не возвращается никогда.
+    let mut cleaned = Zeroizing::new(Vec::with_capacity(KIT_SYMBOLS));
+    let mut symbols = 0usize;
+
+    for character in input.chars() {
+        if is_separator(character) {
+            continue;
+        }
+        if !character.is_ascii() {
+            // Байтовый разбор показал бы здесь `Ð` — первый байт UTF-8 от
+            // кириллической `О`. Человеку, который смотрит на свою же букву,
+            // это сообщение не говорит ничего.
+            return Err(Error::InvalidEmergencyKit(format!(
+                "non-Latin character '{character}' in {}",
+                symbol_location(symbols)
+            )));
+        }
+        if symbols < KIT_SYMBOLS {
+            // ASCII проверен строкой выше, поэтому приведение не усекает.
+            cleaned.push(character.to_ascii_uppercase() as u8);
+        }
+        symbols += 1;
+    }
+
+    if symbols != KIT_SYMBOLS {
+        return Err(Error::InvalidEmergencyKit(format!(
+            "expected {KIT_SYMBOLS} symbols, got {symbols}"
+        )));
+    }
+
+    Ok(cleaned)
+}
+
+/// Место символа в печатной раскладке — так, как его видит человек с листом.
+fn symbol_location(index: usize) -> String {
+    format!(
+        "group {}, position {}",
+        index / GROUP + 1,
+        index % GROUP + 1
+    )
+}
+
 /// Переводит символ набора в его пятибитное значение. Вход уже приведён к
 /// верхнему регистру вызывающим кодом.
 ///
@@ -160,8 +216,8 @@ fn key_checksum(key: &[u8; KEY_BYTES]) -> [u8; CHECKSUM_BYTES] {
 /// правда ввёл не ту букву, это поймает контрольная сумма. `U` не
 /// подставляется: Crockford исключил её из алфавита намеренно и замены ей не
 /// задал.
-fn symbol_value(symbol: u8) -> Result<u8> {
-    let symbol = match symbol {
+fn symbol_value(symbol: u8, index: usize) -> Result<u8> {
+    let substituted = match symbol {
         b'I' | b'L' => b'1',
         b'O' => b'0',
         other => other,
@@ -169,12 +225,18 @@ fn symbol_value(symbol: u8) -> Result<u8> {
 
     ALPHABET
         .iter()
-        .position(|&candidate| candidate == symbol)
+        .position(|&candidate| candidate == substituted)
         .map(|value| value as u8)
         .ok_or_else(|| {
             // Символ вне алфавита по определению не является частью ключа,
-            // поэтому попадает в сообщение целиком: выдавать тут нечего.
-            Error::InvalidEmergencyKit(format!("invalid symbol: {}", char::from(symbol)))
+            // поэтому попадает в сообщение целиком. Вместе с ним — место: на
+            // последнем экране перед потерянным хранилищем «проверьте группу
+            // 4» стоит дороже, чем «где-то среди 56 символов».
+            Error::InvalidEmergencyKit(format!(
+                "invalid symbol '{}' in {}",
+                char::from(symbol),
+                symbol_location(index)
+            ))
         })
 }
 
@@ -339,6 +401,27 @@ mod tests {
     }
 
     #[test]
+    fn parsing_tolerates_unicode_separators() {
+        // Набор, проехавший через текстовый редактор: дефисы стали тире, а
+        // пробелы — неразрывными. Символы при этом человек переписал верно, и
+        // отказывать ему не за что.
+        let bytes = [0x3C; 32];
+        let printed = format_emergency_kit(&RecoveryKey::from_bytes(bytes));
+
+        for separator in [
+            "\u{2010}", "\u{2011}", "\u{2012}", "\u{2013}", "\u{2014}", "\u{2015}", "\u{2212}",
+            "\u{00A0}", "\u{2007}", "\u{3000}",
+        ] {
+            let retyped = printed.replace('-', separator);
+            assert_eq!(
+                parse_emergency_kit(&retyped).unwrap().as_bytes(),
+                &bytes,
+                "separator {separator:?}"
+            );
+        }
+    }
+
+    #[test]
     fn parsing_substitutes_crockford_lookalikes() {
         // Тот случай, ради которого подстановка и заведена: человек переписал с
         // бумаги единицы как I и l, а нули — как O. Набор при этом верный, и
@@ -375,19 +458,12 @@ mod tests {
     #[test]
     fn parsing_rejects_symbols_outside_the_alphabet() {
         // `U` выброшена Crockford'ом намеренно и замены не имеет — в отличие от
-        // I, L и O она обязана оставаться ошибкой. Кириллическая `О` идёт сюда
-        // же: от латинской она на бумаге неотличима, а в UTF-8 разворачивается
-        // в два байта `>= 0x80`, до которых подстановке дела нет.
-        let filler = "0".repeat(KIT_SYMBOLS - 2);
-        let inputs = [
-            "U".repeat(KIT_SYMBOLS),
-            "$".repeat(KIT_SYMBOLS),
-            format!("{filler}\u{041E}"),
-        ];
+        // I, L и O она обязана оставаться ошибкой.
+        let inputs = ["U".repeat(KIT_SYMBOLS), "$".repeat(KIT_SYMBOLS)];
 
         for input in inputs {
-            // Длина ровно в один набор: иначе сработала бы проверка выше и тест
-            // доказывал бы не то, что написано в его имени.
+            // Длина ровно в один набор: иначе сработала бы проверка длины и
+            // тест доказывал бы не то, что написано в его имени.
             assert_eq!(input.len(), KIT_SYMBOLS);
             let reason = rejection_reason(&input);
             assert!(
@@ -395,6 +471,34 @@ mod tests {
                 "expected an alphabet rejection, got: {reason}"
             );
         }
+    }
+
+    #[test]
+    fn parsing_names_the_position_of_a_bad_symbol() {
+        // Сообщение читает человек, у которого этот набор — последнее, что
+        // осталось от хранилища. «Неверный символ» без места отправляет его
+        // перечитывать все 56.
+        let mut symbols = "0".repeat(KIT_SYMBOLS);
+        symbols.replace_range(23..24, "$");
+
+        assert_eq!(
+            rejection_reason(&symbols),
+            "invalid symbol '$' in group 4, position 3"
+        );
+    }
+
+    #[test]
+    fn parsing_names_non_latin_characters() {
+        // Кириллическая `О` от латинской на бумаге неотличима, а в UTF-8
+        // разворачивается в два байта `>= 0x80`. Байтовый разбор показывал
+        // здесь `Ð` — первый байт этой пары, то есть мусор вместо подсказки.
+        let mut symbols = "0".repeat(KIT_SYMBOLS - 1);
+        symbols.insert(8, '\u{041E}');
+
+        assert_eq!(
+            rejection_reason(&symbols),
+            "non-Latin character 'О' in group 2, position 2"
+        );
     }
 
     #[test]
