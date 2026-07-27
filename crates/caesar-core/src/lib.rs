@@ -4,6 +4,7 @@
 //!
 //! Крейт не содержит сети, хранилища и UI. Все функции — от байтов к байтам.
 
+pub mod envelope;
 pub mod error;
 pub mod keys;
 
