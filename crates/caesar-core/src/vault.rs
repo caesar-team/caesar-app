@@ -1,7 +1,14 @@
 use crate::aead;
 use crate::keys::{KeyEncryptionKey, VaultKey};
 use crate::{Error, Result};
-use zeroize::ZeroizeOnDrop;
+use zeroize::{ZeroizeOnDrop, Zeroizing};
+
+/// Длина эфемерного публичного ключа в префиксе расшаренной записи.
+pub const EPHEMERAL_PUBLIC_LEN: usize = 32;
+
+/// Домен HKDF для расшаривания ключа хранилища. Соседи — `caesar/auth/v1` и
+/// `caesar/wrap/v1` в `kdf.rs`.
+const INFO_SHARE: &[u8] = b"caesar/share/v1";
 
 /// Пара ключей пользователя. Долгоживущая личность: именно она делает
 /// командный доступ возможным без раскрытия VK серверу.
@@ -116,6 +123,29 @@ pub fn unwrap_user_key(kek: &KeyEncryptionKey, wrapped: &[u8]) -> Result<UserKey
     UserKeyPair::try_from_slice(&secret)
 }
 
+/// То же, что [`unwrap_user_key`], но дополнительно сверяет выведенную
+/// публичную половину с той, что опубликована сервером.
+///
+/// `unwrap_user_key` больше проверить и не может: после клэмпинга любые 32
+/// байта — валидный секрет X25519, и `from_secret` пересчитает согласованную
+/// с ними публичную половину. Тег Poly1305 ловит порчу, но не откат: подстановка
+/// прошлой, честно завёрнутой записи проходит его чисто. Сверка с `UK_pub` —
+/// единственное, что отличает актуальную личность от устаревшей, поэтому
+/// клиенты обязаны ходить сюда, а не в `unwrap_user_key`, везде, где `UK_pub`
+/// приходит с сервера.
+pub fn unwrap_user_key_verified(
+    kek: &KeyEncryptionKey,
+    wrapped: &[u8],
+    expected_public: &[u8; 32],
+) -> Result<UserKeyPair> {
+    // Сравнение обычное, не константное по времени: обе стороны публичны.
+    let user_key = unwrap_user_key(kek, wrapped)?;
+    if user_key.public_bytes() != expected_public {
+        return Err(Error::UserKeyMismatch);
+    }
+    Ok(user_key)
+}
+
 /// Оборачивает ключ хранилища. Один vault даёт одну такую запись.
 pub fn wrap_vault_key(kek: &KeyEncryptionKey, vault_key: &VaultKey) -> Result<Vec<u8>> {
     aead::seal(kek.as_bytes(), vault_key.as_bytes())
@@ -123,6 +153,92 @@ pub fn wrap_vault_key(kek: &KeyEncryptionKey, vault_key: &VaultKey) -> Result<Ve
 
 pub fn unwrap_vault_key(kek: &KeyEncryptionKey, wrapped: &[u8]) -> Result<VaultKey> {
     let raw = aead::open(kek.as_bytes(), wrapped)?;
+    VaultKey::try_from_slice(&raw)
+}
+
+/// Выводит симметричный ключ записи из общего секрета X25519.
+///
+/// Оба публичных ключа входят в соль. Публичный ключ получателя там не ради
+/// красоты: сам по себе DH связывает шифротекст с адресатом только пока
+/// эфемерный ключ имеет большой порядок. Точка малого порядка в префиксе даёт
+/// нулевой общий секрет с *любым* приватным ключом, и без получателя в соли
+/// одна такая запись открывалась бы всеми участниками сразу.
+fn shared_key(
+    shared_secret: &[u8; 32],
+    ephemeral_public: &[u8; 32],
+    recipient_public: &[u8; 32],
+) -> Zeroizing<[u8; 32]> {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    // Соль — из двух публичных ключей, зачищать нечего.
+    let mut salt = [0u8; 2 * EPHEMERAL_PUBLIC_LEN];
+    salt[..EPHEMERAL_PUBLIC_LEN].copy_from_slice(ephemeral_public);
+    salt[EPHEMERAL_PUBLIC_LEN..].copy_from_slice(recipient_public);
+
+    // `Zeroizing`, а не голый `[u8; 32]`: массив — `Copy`, обычный локальный
+    // остался бы на стеке после возврата. Та же форма, что у `expand` в `kdf.rs`.
+    let hk = Hkdf::<Sha256>::new(Some(&salt), shared_secret);
+    let mut out = Zeroizing::new([0u8; 32]);
+    hk.expand(INFO_SHARE, out.as_mut_slice())
+        .expect("32 bytes is a valid HKDF output length");
+    out
+}
+
+/// Шифрует ключ хранилища на публичный ключ участника.
+///
+/// Формат: `ephemeral_public(32) || Envelope`.
+pub fn seal_vault_key_for(recipient_public: &[u8; 32], vault_key: &VaultKey) -> Result<Vec<u8>> {
+    use rand_core::{OsRng, RngCore};
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    // Отказ CSPRNG — `Err`, а не паника, и не «сделать хоть что-нибудь»:
+    // повторный эфемерный ключ повторяет и ключ записи. Та же схема, что в
+    // `keys.rs`, `kdf.rs` и `aead.rs`.
+    let mut ephemeral_secret = Zeroizing::new([0u8; 32]);
+    OsRng
+        .try_fill_bytes(ephemeral_secret.as_mut_slice())
+        .map_err(|_| Error::RandomSourceUnavailable)?;
+
+    let ephemeral_public = public_from_secret(&ephemeral_secret);
+    let shared =
+        StaticSecret::from(*ephemeral_secret).diffie_hellman(&PublicKey::from(*recipient_public));
+    let key = shared_key(shared.as_bytes(), &ephemeral_public, recipient_public);
+
+    let envelope = aead::seal(&key, vault_key.as_bytes())?;
+    let mut out = Vec::with_capacity(EPHEMERAL_PUBLIC_LEN + envelope.len());
+    out.extend_from_slice(&ephemeral_public);
+    out.extend_from_slice(&envelope);
+    Ok(out)
+}
+
+/// Расшифровывает ключ хранилища приватным ключом получателя.
+pub fn open_vault_key_for(recipient: &UserKeyPair, sealed: &[u8]) -> Result<VaultKey> {
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    // `first_chunk` отдаёт `&[u8; 32]` сразу: срез с последующим `try_into`
+    // добавил бы преобразование, которое не может провалиться, и `unwrap`
+    // поверх него.
+    let ephemeral_public =
+        *sealed
+            .first_chunk::<EPHEMERAL_PUBLIC_LEN>()
+            .ok_or(Error::Truncated {
+                got: sealed.len(),
+                need: EPHEMERAL_PUBLIC_LEN,
+            })?;
+
+    let shared = StaticSecret::from(*recipient.secret_bytes())
+        .diffie_hellman(&PublicKey::from(ephemeral_public));
+    let key = shared_key(
+        shared.as_bytes(),
+        &ephemeral_public,
+        recipient.public_bytes(),
+    );
+
+    // `aead::open` отдаёт `Zeroizing`, поэтому расшифрованный ключ затирается,
+    // даже если проверка длины ниже провалится.
+    let raw = aead::open(&key, &sealed[EPHEMERAL_PUBLIC_LEN..])?;
+    // Проверка длины — через try_from_slice, единственную точку в крейте.
     VaultKey::try_from_slice(&raw)
 }
 
@@ -310,6 +426,171 @@ mod tests {
         let recovered_uk = unwrap_user_key(&new_kek, &after["wrapped_uk"]).unwrap();
         assert_eq!(recovered_uk.secret_bytes(), kp.secret_bytes());
         assert_eq!(recovered_uk.public_bytes(), kp.public_bytes());
+    }
+
+    #[test]
+    fn verified_unwrap_accepts_the_published_public_key() {
+        let kek = test_kek();
+        let kp = UserKeyPair::generate().unwrap();
+        let wrapped = wrap_user_key(&kek, &kp).unwrap();
+        let restored = unwrap_user_key_verified(&kek, &wrapped, kp.public_bytes()).unwrap();
+        assert_eq!(restored.secret_bytes(), kp.secret_bytes());
+    }
+
+    #[test]
+    fn verified_unwrap_rejects_a_rolled_back_record() {
+        // Откат: сервер отдаёт прошлую, честно завёрнутую запись
+        // `encryptedUserKey`. Тег Poly1305 сходится, длина верна, и без сверки
+        // с опубликованным UK_pub клиент принял бы устаревшую личность — а
+        // вместе с ней потерял бы все расшаренные на текущий UK_pub хранилища,
+        // не получив ни одной ошибки, объясняющей почему.
+        let kek = test_kek();
+        let old = UserKeyPair::generate().unwrap();
+        let current = UserKeyPair::generate().unwrap();
+        let stale = wrap_user_key(&kek, &old).unwrap();
+
+        assert_eq!(
+            unwrap_user_key_verified(&kek, &stale, current.public_bytes()).unwrap_err(),
+            Error::UserKeyMismatch
+        );
+        // Та же запись без сверки проходит молча — это и есть дыра, которую
+        // закрывает `unwrap_user_key_verified`.
+        assert!(unwrap_user_key(&kek, &stale).is_ok());
+    }
+
+    #[test]
+    fn recipient_recovers_vault_key() {
+        let recipient = UserKeyPair::generate().unwrap();
+        let vk = VaultKey::generate().unwrap();
+        let sealed = seal_vault_key_for(recipient.public_bytes(), &vk).unwrap();
+        assert_eq!(
+            open_vault_key_for(&recipient, &sealed).unwrap().as_bytes(),
+            vk.as_bytes()
+        );
+    }
+
+    #[test]
+    fn other_user_cannot_open() {
+        let recipient = UserKeyPair::generate().unwrap();
+        let stranger = UserKeyPair::generate().unwrap();
+        let sealed =
+            seal_vault_key_for(recipient.public_bytes(), &VaultKey::generate().unwrap()).unwrap();
+        assert_eq!(
+            open_vault_key_for(&stranger, &sealed).unwrap_err(),
+            Error::DecryptionFailed
+        );
+    }
+
+    #[test]
+    fn each_seal_uses_a_fresh_ephemeral_key() {
+        let recipient = UserKeyPair::generate().unwrap();
+        let vk = VaultKey::generate().unwrap();
+        let a = seal_vault_key_for(recipient.public_bytes(), &vk).unwrap();
+        let b = seal_vault_key_for(recipient.public_bytes(), &vk).unwrap();
+        assert_ne!(
+            &a[..EPHEMERAL_PUBLIC_LEN],
+            &b[..EPHEMERAL_PUBLIC_LEN],
+            "переиспользованный эфемерный ключ повторяет и nonce-независимый \
+             ключ шифрования: две записи под одним ключом"
+        );
+    }
+
+    #[test]
+    fn open_rejects_a_blob_without_a_full_ephemeral_key() {
+        // Слишком короткий вход не должен доезжать до `first_chunk`-less
+        // индексации: 31 байт — это не «пустой конверт», а обрезанный префикс.
+        let recipient = UserKeyPair::generate().unwrap();
+        assert_eq!(
+            open_vault_key_for(&recipient, &[0u8; 31]).unwrap_err(),
+            Error::Truncated { got: 31, need: 32 }
+        );
+    }
+
+    #[test]
+    fn sealed_blob_layout_is_pinned() {
+        // Эти байты лежат у пользователей на сервере: любое изменение формы
+        // делает расшаренные хранилища неоткрываемыми.
+        //
+        // 106 = 32 (эфемерный публичный ключ) + 2 (заголовок) + 24 (nonce)
+        //     + 32 (ключ хранилища) + 16 (тег). Литерал намеренный: выражение
+        // из констант поехало бы следом за ними и не заметило бы ровно ту
+        // правку, ради которой этот тест существует.
+        let recipient = UserKeyPair::generate().unwrap();
+        let sealed =
+            seal_vault_key_for(recipient.public_bytes(), &VaultKey::generate().unwrap()).unwrap();
+        assert_eq!(sealed.len(), 106);
+        // Конверт идёт сразу за эфемерным ключом, а не перед ним: на смещении
+        // 32 лежит его заголовок — версия протокола и идентификатор сюиты.
+        assert_eq!(&sealed[32..34], &[1, 1]);
+    }
+
+    #[test]
+    fn shared_key_binds_both_public_keys() {
+        // Общий секрет один и тот же, меняется только соль. Реализация,
+        // потерявшая любую из её половин, вернёт здесь одинаковые ключи.
+        let ss = [0x11; 32];
+        let base = *shared_key(&ss, &[0x22; 32], &[0x33; 32]);
+        assert_ne!(*shared_key(&ss, &[0x99; 32], &[0x33; 32]), base);
+        assert_ne!(*shared_key(&ss, &[0x22; 32], &[0x99; 32]), base);
+    }
+
+    #[test]
+    fn shared_key_derivation_is_pinned() {
+        // Снято с этой реализации и закреплено литералом. Тест не проверяет
+        // криптографию — он держит форму вывода: строку домена INFO_SHARE и
+        // порядок половин в соли (сначала эфемерный ключ, затем ключ
+        // получателя). Перестановка соли или правка INFO_SHARE делают
+        // нечитаемыми все уже расшаренные записи; без литерала такое
+        // изменение прошло бы молча — все остальные тесты остаются зелёными,
+        // потому что seal и open меняются вместе.
+        assert_eq!(
+            hex::encode(*shared_key(&[0x01; 32], &[0x02; 32], &[0x03; 32])),
+            "1337fa98bc6ff6f271111ae6d42497a724e6cc4cac0366aaa89f7c16289b2436"
+        );
+    }
+
+    /// Публичный ключ с u = 0. Точка малого порядка: X25519 даёт с ней
+    /// вырожденный (нулевой) общий секрет для любого приватного ключа.
+    const DEGENERATE_PUBLIC: [u8; 32] = [0u8; 32];
+
+    #[test]
+    fn a_degenerate_ephemeral_key_cannot_be_replayed_to_another_recipient() {
+        use x25519_dalek::{PublicKey, StaticSecret};
+
+        let alice = UserKeyPair::generate().unwrap();
+        let bob = UserKeyPair::generate().unwrap();
+        let vk = VaultKey::generate().unwrap();
+
+        // Предпосылка, ради которой этот тест вообще возможен: с точкой малого
+        // порядка в роли эфемерного ключа обмен Диффи-Хеллмана перестаёт
+        // зависеть от получателя — у Алисы и Боба он даёт одни и те же нули.
+        // Именно здесь сам по себе DH больше не связывает шифротекст с
+        // адресатом, и единственное, что его связывает, — соль HKDF.
+        let dh = |kp: &UserKeyPair| {
+            *StaticSecret::from(*kp.secret_bytes())
+                .diffie_hellman(&PublicKey::from(DEGENERATE_PUBLIC))
+                .as_bytes()
+        };
+        assert_eq!(dh(&alice), [0u8; 32]);
+        assert_eq!(dh(&bob), [0u8; 32]);
+
+        // Враждебный отправитель собирает запись на Алису вручную.
+        let key = shared_key(&[0u8; 32], &DEGENERATE_PUBLIC, alice.public_bytes());
+        let mut blob = DEGENERATE_PUBLIC.to_vec();
+        blob.extend_from_slice(&aead::seal(&key, vk.as_bytes()).unwrap());
+
+        // Адресат её открывает — запись настоящая, а не заведомо битая.
+        assert_eq!(
+            open_vault_key_for(&alice, &blob).unwrap().as_bytes(),
+            vk.as_bytes()
+        );
+        // А больше никто, и ровно потому, что публичный ключ получателя входит
+        // в соль HKDF. Убрать его оттуда — и Боб выведет тот же ключ, что
+        // Алиса: одна запись, переадресуемая любому участнику.
+        assert_eq!(
+            open_vault_key_for(&bob, &blob).unwrap_err(),
+            Error::DecryptionFailed
+        );
     }
 
     #[test]
