@@ -9,6 +9,7 @@ pub mod envelope;
 pub mod error;
 pub mod kdf;
 pub mod keys;
+pub mod model;
 pub mod recovery;
 pub mod vault;
 
@@ -16,6 +17,9 @@ pub use aead::{open, seal};
 pub use error::{Error, Result};
 pub use kdf::{auth_key, derive_master_key, key_encryption_key, KdfParams};
 pub use keys::{AuthKey, KeyEncryptionKey, MasterKey, RecoveryKey, VaultKey};
+pub use model::{
+    open_item, seal_item, CustomField, ItemKind, ItemSecret, SecretString, ITEM_SCHEMA_VERSION,
+};
 pub use recovery::{format_emergency_kit, parse_emergency_kit};
 pub use vault::{
     open_vault_key_for, public_key_from_slice, seal_vault_key_for, unwrap_user_key,
