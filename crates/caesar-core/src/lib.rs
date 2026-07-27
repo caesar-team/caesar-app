@@ -9,11 +9,13 @@ pub mod envelope;
 pub mod error;
 pub mod kdf;
 pub mod keys;
+pub mod vault;
 
 pub use aead::{open, seal};
 pub use error::{Error, Result};
 pub use kdf::{auth_key, derive_master_key, key_encryption_key, KdfParams};
 pub use keys::{AuthKey, KeyEncryptionKey, MasterKey, RecoveryKey, VaultKey};
+pub use vault::{unwrap_user_key, unwrap_vault_key, wrap_user_key, wrap_vault_key, UserKeyPair};
 
 /// Версия формата конверта. Меняется только при смене формата шифрования.
 pub const PROTOCOL_VERSION: u8 = 1;
