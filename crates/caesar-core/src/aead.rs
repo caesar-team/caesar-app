@@ -1,5 +1,6 @@
 use crate::envelope::{self, NONCE_LEN, TAG_LEN};
 use crate::{Error, Result};
+use zeroize::Zeroizing;
 
 // Размеры конверта обязаны совпадать с тем, что реально выдаёт AEAD.
 // Бамп зависимости, меняющий их, должен ломать сборку, а не молча
@@ -56,14 +57,24 @@ pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
         )
         // Единственный отказ XChaCha20-Poly1305 — длина открытого текста
         // за пределом счётчика ChaCha20 (~256 ГиБ). Под wasm32 это
-        // недостижимо по построению: там всё адресное пространство 4 ГиБ.
-        .expect("XChaCha20-Poly1305 encryption fails only past the ~256 GiB counter limit");
+        // недостижимо по построению (всё адресное пространство — 4 ГиБ), но
+        // на 64-битных целях UniFFI (iOS, Android, десктоп) — нет, а `seal`
+        // и так возвращает `Result`. Тот же довод, что и у `try_fill_bytes`
+        // выше: паника здесь уносит модуль или хост-приложение.
+        .map_err(|_| Error::PlaintextTooLarge)?;
 
     Ok(envelope::encode(&nonce_bytes, &ciphertext))
 }
 
 /// Разбирает конверт и расшифровывает его.
-pub fn open(key: &[u8; 32], envelope_bytes: &[u8]) -> Result<Vec<u8>> {
+///
+/// В отличие от `seal`, здесь секрет — именно **возвращаемое** значение: это
+/// приватный ключ X25519, ключ хранилища или JSON элемента с паролями и TOTP.
+/// `RustCrypto` расшифровывает на месте в собственном `Vec` и отдаёт его как
+/// есть, поэтому без обёртки открытый текст освобождался бы незатёртым.
+/// `Zeroizing<Vec<u8>>` затирает и длину, и остаток ёмкости (16 байт из-под
+/// срезанного тега), а `Deref` до `Vec<u8>` оставляет вызывающий код прежним.
+pub fn open(key: &[u8; 32], envelope_bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     use chacha20poly1305::aead::{Aead, KeyInit, Payload};
     use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 
@@ -77,6 +88,7 @@ pub fn open(key: &[u8; 32], envelope_bytes: &[u8]) -> Result<Vec<u8>> {
                 aad: parsed.aad,
             },
         )
+        .map(Zeroizing::new)
         // Причина отказа не уточняется намеренно: различать «не тот ключ» и
         // «подделанный шифротекст» — значит отвечать на вопросы атакующего.
         .map_err(|_| Error::DecryptionFailed)
@@ -101,7 +113,9 @@ mod tests {
     #[test]
     fn round_trips() {
         let sealed = seal(&KEY, b"hunter2").unwrap();
-        assert_eq!(open(&KEY, &sealed).unwrap(), b"hunter2");
+        // Срез, а не сам `Zeroizing`: `PartialEq` у него только с себе
+        // подобным, до `Vec<u8>` он доходит через `Deref`.
+        assert_eq!(&open(&KEY, &sealed).unwrap()[..], b"hunter2");
     }
 
     #[test]
@@ -159,6 +173,18 @@ mod tests {
     }
 
     #[test]
+    fn seal_uses_the_same_aad_that_decode_reports() {
+        // Сегодня оба источника — `envelope::HEADER`, так что равенство
+        // выполняется по построению. Тест нужен на будущее: когда `decode`
+        // научится принимать несколько версий, он станет отдавать в `aad`
+        // заголовок конверта, а захардкоженный `HEADER` в `seal` обязан
+        // переехать вместе с ним. Иначе `open` перестанет расшифровывать
+        // свежие конверты, и ни один другой тест этого не покажет.
+        let sealed = seal(&KEY, b"x").unwrap();
+        assert_eq!(envelope::decode(&sealed).unwrap().aad, &envelope::HEADER);
+    }
+
+    #[test]
     fn wrong_key_fails() {
         let sealed = seal(&KEY, b"secret").unwrap();
         assert_eq!(
@@ -187,7 +213,7 @@ mod tests {
     fn empty_plaintext_round_trips() {
         let sealed = seal(&KEY, b"").unwrap();
         assert_eq!(sealed.len(), envelope::MIN_ENVELOPE_LEN);
-        assert_eq!(open(&KEY, &sealed).unwrap(), b"");
+        assert!(open(&KEY, &sealed).unwrap().is_empty());
     }
 
     #[test]
@@ -200,5 +226,13 @@ mod tests {
             open(&KEY, &sealed).unwrap_err(),
             Error::UnsupportedVersion { found: 99, .. }
         ));
+    }
+
+    #[test]
+    fn open_rejects_a_truncated_envelope() {
+        // Слишком короткий вход не должен доезжать до `XNonce::from_slice`,
+        // который на срезе не той длины паникует. Защита стоит в `decode`,
+        // но со стороны `open` её ничто не удерживало.
+        assert!(matches!(open(&KEY, &[1, 1]), Err(Error::Truncated { .. })));
     }
 }

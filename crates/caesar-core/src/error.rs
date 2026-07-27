@@ -19,6 +19,12 @@ pub enum Error {
     #[error("decryption failed: wrong key or tampered ciphertext")]
     DecryptionFailed,
 
+    /// Открытый текст длиннее, чем адресует счётчик блоков ChaCha20 (~256 ГиБ).
+    /// Недостижимо для реальных данных Caesar, но паниковать нельзя: под
+    /// UniFFI это унесло бы хост-приложение целиком.
+    #[error("plaintext too large to encrypt")]
+    PlaintextTooLarge,
+
     #[error("key derivation failed: {0}")]
     KeyDerivation(String),
 
