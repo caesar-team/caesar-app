@@ -9,12 +9,14 @@ pub mod envelope;
 pub mod error;
 pub mod kdf;
 pub mod keys;
+pub mod recovery;
 pub mod vault;
 
 pub use aead::{open, seal};
 pub use error::{Error, Result};
 pub use kdf::{auth_key, derive_master_key, key_encryption_key, KdfParams};
 pub use keys::{AuthKey, KeyEncryptionKey, MasterKey, RecoveryKey, VaultKey};
+pub use recovery::{format_emergency_kit, parse_emergency_kit};
 pub use vault::{
     open_vault_key_for, public_key_from_slice, seal_vault_key_for, unwrap_user_key,
     unwrap_user_key_verified, unwrap_vault_key, wrap_user_key, wrap_vault_key, UserKeyPair,
