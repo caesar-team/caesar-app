@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: link-data
+spec:
+  accessModes:
+    - ReadWriteOnce # single-writer: SQLite + local blobs, one replica
+  resources:
+    requests:
+      storage: 5Gi
+  # Uses the cluster's default StorageClass. k0s ships none by default —
+  # install one first, e.g. Rancher local-path:
+  #   kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+  #   kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  # Or pin explicitly:
+  # storageClassName: local-path

@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: link
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml # remove this line if exposing via NodePort/LoadBalancer instead
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: caesar-link
+
+# Pin the image tag per release instead of :latest (recommended):
+images:
+  - name: ghcr.io/caesar-team/link
+    newTag: latest

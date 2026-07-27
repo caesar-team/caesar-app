@@ -1,0 +1,25 @@
+{
+  "name": "@caesar/link-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/main.ts",
+    "start": "bun run src/main.ts",
+    "build": "tsc --noEmit",
+    "test": "bun test",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@caesar/typescript-config": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "hono": "^4.12.31",
+    "hono-rate-limiter": "^0.5.3",
+    "nanoid": "^6.0.0"
+  }
+}

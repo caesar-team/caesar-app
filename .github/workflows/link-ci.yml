@@ -1,0 +1,39 @@
+name: Link CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+  pull_request:
+    paths:
+      - "apps/link/**"
+      - "packages/crypto/**"
+      - "packages/link-sdk/**"
+      - "packages/typescript-config/**"
+      - ".github/workflows/link-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install Bun via the official script (no node24 action — works on GitHub
+      # Actions and on older Gitea act runners alike).
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash -s "bun-v1.2.20"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      # Single source of truth for what "checks pass" means: the same script developers
+      # run as `bun run check:ci`, so the two cannot drift.
+      - name: Run checks
+        run: bun run check:ci

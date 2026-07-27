@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: link-config
+data:
+  PORT: "3000"
+  DATA_DIR: /data
+  MAX_BLOB_SIZE: "104857600" # 100 MB
+  RATE_LIMIT_MAX: "30"
+  RATE_LIMIT_WINDOW_MS: "3600000" # 1 hour
+  MAX_TTL: "2592000" # 30 days
+  MAX_META_SIZE: "16384"
+  # Behind an ingress/proxy the pod's peer is the proxy, so trust the client IP
+  # from X-Forwarded-For for rate limiting. Set to "false" if the pod is exposed
+  # directly (NodePort/LoadBalancer without a trusted proxy in front).
+  TRUST_PROXY: "true"
+  # WEB_DIR is baked into the image (serves the built SPA); no need to set here.

@@ -1,0 +1,99 @@
+{
+  "version": 2,
+  "vectors": [
+    {
+      "name": "text-plain",
+      "password": null,
+      "fragment": "k.8B6FCg--A4EG0CYWhi4ytKh_ZsHz1B3pzLKwuicD_iM",
+      "kdf": null,
+      "blob": {
+        "ciphertext": "XfneffxTPbpOirTSEVMPte1Z29v0aI12vt6vR09pqcVENAZh5FirROeF6Pm06Qc087LexbTL1HjKugQd9g",
+        "iv": "g0oN146xLoraAo4K"
+      },
+      "expected": {
+        "type": "text",
+        "data": "aGVsbG8gbGluaw"
+      }
+    },
+    {
+      "name": "text-unicode",
+      "password": null,
+      "fragment": "k.dI0V_wvecvvLVMegmRMVERGdetrt5olCti0sCHFVq8c",
+      "kdf": null,
+      "blob": {
+        "ciphertext": "vmm_POF2rbbcJhUsY4Bf3APrIKrB7V42xkSl1f4ePKzzsD0nt283RZqvW-1AG3LquBZ0YJZPdubZt1wJP1YxS0J_V4GsVw",
+        "iv": "IPIan3tfoA_iKDoR"
+      },
+      "expected": {
+        "type": "text",
+        "data": "0L_RgNC40LLQtdGCIPCflJc"
+      }
+    },
+    {
+      "name": "file-binary",
+      "password": null,
+      "fragment": "k.2d59OZC4HAROBkTMqmhRtVfPLTAQrqaJXE5bzmRpX5M",
+      "kdf": null,
+      "blob": {
+        "ciphertext": "0YKrlb4pWntwnwXIvZxRPlq7gUhfr5D7es5eu871TTCm9K3yN6hFHSqJlj2d8My0jcbyOlCs-ysGeYCFp6LA5D7PWwTh7FYKhH-Hfienq5QhzX-PKGHRwFbvc7-YZ81S1xFw6wyHKq4nPtl9Rnxrqh6VrhXkKg",
+        "iv": "DlKTW1yUe8Kc6PA2"
+      },
+      "expected": {
+        "type": "file",
+        "files": [
+          {
+            "name": "data.bin",
+            "mime": "application/octet-stream",
+            "data": "AAEC_v8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "file-multi",
+      "password": null,
+      "fragment": "k.hR1Kdq0BF91XKeYXBXowZFLwCTs4LS9QHLmVfA4QW5U",
+      "kdf": null,
+      "blob": {
+        "ciphertext": "petgki2dcfxZC_k17ynZNwF2mVtkBWO3-h6sDol6VK0b0POGrbOTZ3Ue_TXmUvfrdmHpxwBkDxZ0Dz-EFGSzf0sajzIPRZytJu15EyC_r30hGXZ4fWQ31nYi3c3DwYzDrsZ5sFdXb08DL_zctG-mjB2JX6TtaxqtWwLj1vkr-UY_D7HVODHLam_PC-RurtL0HUTW-SQellRks3PWQdCI4vdSPkqXjw",
+        "iv": "mYCXi2w8WcP5Puyt"
+      },
+      "expected": {
+        "type": "file",
+        "files": [
+          {
+            "name": "one.txt",
+            "mime": "text/plain",
+            "data": "b25l"
+          },
+          {
+            "name": "two.bin",
+            "mime": "application/octet-stream",
+            "data": "_v8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "text-password",
+      "password": "vector-password",
+      "fragment": "p.Lbo2hZGULGMDE7pi01b425PgJ-_erYOsOIICJnGO7Ri6F-DyqX5_O7jgjK-AjtoF01-VRRywaes3uwYz",
+      "kdf": {
+        "kdf": "scrypt",
+        "salt": "F9On5U258hsOX-V0ZnQ5qQ",
+        "N": 16384,
+        "r": 8,
+        "p": 1,
+        "dkLen": 32
+      },
+      "blob": {
+        "ciphertext": "Rw57FrrahHFSnufhia626HzY1fwCf1Olr2uz9CIX2tcmJTE6yFhYcL-_ysM3BqkXHENlYgn2MXcJ",
+        "iv": "fmrUr5z4J-ShB12t"
+      },
+      "expected": {
+        "type": "text",
+        "data": "Z3VhcmRlZA"
+      }
+    }
+  ]
+}
