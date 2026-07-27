@@ -238,7 +238,6 @@ fn shared_key(
 /// Формат: `ephemeral_public(32) || Envelope`.
 pub fn seal_vault_key_for(recipient_public: &[u8; 32], vault_key: &VaultKey) -> Result<Vec<u8>> {
     use rand_core::{OsRng, RngCore};
-    use x25519_dalek::{PublicKey, StaticSecret};
 
     // Отказ CSPRNG — `Err`, а не паника, и не «сделать хоть что-нибудь»:
     // повторный эфемерный ключ повторяет и ключ записи. Та же схема, что в
@@ -247,8 +246,36 @@ pub fn seal_vault_key_for(recipient_public: &[u8; 32], vault_key: &VaultKey) -> 
     OsRng
         .try_fill_bytes(ephemeral_secret.as_mut_slice())
         .map_err(|_| Error::RandomSourceUnavailable)?;
+    let mut nonce = [0u8; crate::envelope::NONCE_LEN];
+    OsRng
+        .try_fill_bytes(&mut nonce)
+        .map_err(|_| Error::RandomSourceUnavailable)?;
 
-    let ephemeral_public = public_from_secret(&ephemeral_secret);
+    seal_vault_key_for_with_randomness(recipient_public, vault_key, &ephemeral_secret, &nonce)
+}
+
+/// То же, что [`seal_vault_key_for`], но с эфемерным ключом и nonce от
+/// вызывающего.
+///
+/// # Только для генератора векторов
+///
+/// Довод тот же, что у [`crate::aead::seal_with_nonce`]: `protocol/vectors.json`
+/// обязан порождаться байт-в-байт одинаково, а здесь источников случайности два.
+///
+/// Повторный эфемерный ключ повторяет ключ записи, а с ним и nonce под ним —
+/// две записи под одним ключом и одним nonce раскрывают оба ключа хранилища.
+/// Рабочий код обязан звать [`seal_vault_key_for`], который реализован через
+/// эту функцию, а не рядом с ней. Не экспортируется через UniFFI и wasm-bindgen.
+#[doc(hidden)]
+pub fn seal_vault_key_for_with_randomness(
+    recipient_public: &[u8; 32],
+    vault_key: &VaultKey,
+    ephemeral_secret: &[u8; 32],
+    nonce: &[u8; crate::envelope::NONCE_LEN],
+) -> Result<Vec<u8>> {
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    let ephemeral_public = public_from_secret(ephemeral_secret);
     let shared =
         StaticSecret::from(*ephemeral_secret).diffie_hellman(&PublicKey::from(*recipient_public));
     // Точка малого порядка в роли ключа получателя обнуляет общий секрет и
@@ -259,7 +286,7 @@ pub fn seal_vault_key_for(recipient_public: &[u8; 32], vault_key: &VaultKey) -> 
     }
     let key = shared_key(shared.as_bytes(), &ephemeral_public, recipient_public);
 
-    let envelope = aead::seal(&key, vault_key.as_bytes())?;
+    let envelope = aead::seal_with_nonce(&key, nonce, vault_key.as_bytes())?;
     let mut out = Vec::with_capacity(EPHEMERAL_PUBLIC_LEN + envelope.len());
     out.extend_from_slice(&ephemeral_public);
     out.extend_from_slice(&envelope);

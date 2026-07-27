@@ -8,6 +8,12 @@ license.workspace = true
 default = []
 debug-errors = []
 
+# Порождает protocol/vectors.json. Имя с дефисом — как в воротах CI №1:
+# `cargo run -p caesar-core --bin gen-vectors | diff -u protocol/vectors.json -`.
+[[bin]]
+name = "gen-vectors"
+path = "src/bin/gen_vectors.rs"
+
 [dependencies]
 argon2.workspace = true
 chacha20poly1305.workspace = true

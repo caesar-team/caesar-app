@@ -26,8 +26,6 @@ const _: () = {
 /// обязан быть свежим на каждый вызов, и «сделать хоть что-нибудь» тут хуже,
 /// чем отказать.
 pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
-    use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
     use rand_core::{OsRng, RngCore};
 
     // Повторный nonce XChaCha20 под тем же ключом раскрывает открытый текст,
@@ -39,6 +37,35 @@ pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
         .try_fill_bytes(&mut nonce_bytes)
         .map_err(|_| Error::RandomSourceUnavailable)?;
 
+    seal_with_nonce(key, &nonce_bytes, plaintext)
+}
+
+/// То же, что [`seal`], но с nonce от вызывающего.
+///
+/// # Только для генератора векторов
+///
+/// Существует ровно ради `src/bin/gen_vectors.rs`: `protocol/vectors.json`
+/// обязан порождаться байт-в-байт одинаково на каждом прогоне, иначе ворота
+/// CI №1 (`gen-vectors | diff protocol/vectors.json -`) падают на каждом
+/// коммите, и единственный источник случайности в `seal` — nonce.
+///
+/// Повторный nonce под тем же ключом раскрывает открытый текст обоих
+/// сообщений и подделывает теги: это не «менее безопасный вариант», а прямая
+/// потеря конфиденциальности. Рабочий код обязан звать [`seal`].
+///
+/// Не экспортируется через UniFFI и wasm-bindgen — тот же список, что у
+/// `UserKeyPair::from_secret` и [`crate::vault::seal_vault_key_for_with_randomness`].
+/// `seal` реализован через неё, а не рядом с ней: два тела для одного формата
+/// разъехались бы на версии 2.
+#[doc(hidden)]
+pub fn seal_with_nonce(
+    key: &[u8; 32],
+    nonce_bytes: &[u8; NONCE_LEN],
+    plaintext: &[u8],
+) -> Result<Vec<u8>> {
+    use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+    use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+
     // Заголовок берётся из `envelope::HEADER`, а не собирается заново:
     // два источника правды для одних и тех же байт разъедутся на версии 2,
     // и каждый конверт станет нерасшифровываемым своим же `open`.
@@ -49,7 +76,7 @@ pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new(key.into());
     let ciphertext = cipher
         .encrypt(
-            XNonce::from_slice(&nonce_bytes),
+            XNonce::from_slice(nonce_bytes),
             Payload {
                 msg: plaintext,
                 aad: &envelope::HEADER,
@@ -63,7 +90,7 @@ pub fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
         // выше: паника здесь уносит модуль или хост-приложение.
         .map_err(|_| Error::PlaintextTooLarge)?;
 
-    Ok(envelope::encode(&nonce_bytes, &ciphertext))
+    Ok(envelope::encode(nonce_bytes, &ciphertext))
 }
 
 /// Разбирает конверт и расшифровывает его.
@@ -182,6 +209,17 @@ mod tests {
         // свежие конверты, и ни один другой тест этого не покажет.
         let sealed = seal(&KEY, b"x").unwrap();
         assert_eq!(envelope::decode(&sealed).unwrap().aad, &envelope::HEADER);
+    }
+
+    #[test]
+    fn seal_is_seal_with_nonce_plus_a_fresh_nonce() {
+        // Векторы порождаются через `seal_with_nonce`, а пользователи получают
+        // конверты из `seal`. Расхождение между ними сделало бы
+        // `protocol/vectors.json` описанием формата, которого нет в продукте,
+        // и ни один другой тест этого не увидел бы: обе функции самосогласованы.
+        let sealed = seal(&KEY, b"payload").unwrap();
+        let nonce = nonce_of(&sealed);
+        assert_eq!(seal_with_nonce(&KEY, &nonce, b"payload").unwrap(), sealed);
     }
 
     #[test]
