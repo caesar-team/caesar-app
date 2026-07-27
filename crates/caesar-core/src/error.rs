@@ -31,6 +31,17 @@ pub enum Error {
     #[error("malformed plaintext: {0}")]
     MalformedPlaintext(String),
 
+    /// Айтем записан клиентом с более новой версией схемы открытого текста.
+    /// Зеркалит `UnsupportedVersion`, но для содержимого, а не для конверта.
+    ///
+    /// Отдельный вариант, а не текст в `MalformedPlaintext`: деталь последнего
+    /// редактируется, и без этого различия перекос версий выглядит как порча
+    /// данных — про айтем, у которого пользователь не может прочитать даже
+    /// заголовок. Номер версии не редактируется: он не секрет и одинаков у
+    /// всех айтемов этой версии формата.
+    #[error("unsupported item schema version: {found} (this build supports {supported})")]
+    UnsupportedItemSchema { found: u8, supported: u8 },
+
     #[error("invalid key length: got {got} bytes, expected {expected}")]
     InvalidKeyLength { got: usize, expected: usize },
 
