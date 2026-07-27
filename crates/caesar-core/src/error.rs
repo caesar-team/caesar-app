@@ -30,6 +30,9 @@ pub enum Error {
 
     #[error("invalid emergency kit: {0}")]
     InvalidEmergencyKit(String),
+
+    #[error("no secure random source available")]
+    RandomSourceUnavailable,
 }
 
 /// Redacts detail derived from decrypted plaintext unless `debug-errors` is on.
