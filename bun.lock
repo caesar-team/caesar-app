@@ -58,6 +58,10 @@
         "react": "^19.0.0",
       },
     },
+    "packages/core-wasm": {
+      "name": "@caesar/core-wasm",
+      "version": "0.0.0",
+    },
     "packages/crypto": {
       "name": "@caesar/crypto",
       "version": "0.0.0",
@@ -162,6 +166,8 @@
     "@caesar/auth": ["@caesar/auth@workspace:packages/auth"],
 
     "@caesar/auth-client": ["@caesar/auth-client@workspace:packages/auth-client"],
+
+    "@caesar/core-wasm": ["@caesar/core-wasm@workspace:packages/core-wasm"],
 
     "@caesar/crypto": ["@caesar/crypto@workspace:packages/crypto"],
 
