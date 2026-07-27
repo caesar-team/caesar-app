@@ -141,6 +141,42 @@ fn protocol_constants_match_vectors() {
     assert_eq!(number(c, "maxMCost") as u32, caesar_core::kdf::MAX_M_COST);
     assert_eq!(number(c, "maxTCost") as u32, caesar_core::kdf::MAX_T_COST);
     assert_eq!(number(c, "maxPCost") as u32, caesar_core::kdf::MAX_P_COST);
+
+    // Домены HKDF: их значения пинуются известным ответом косвенно, а вот
+    // подпись рядом с ним — только здесь. Разошедшаяся подпись хуже отсутствия:
+    // файл вёз бы ложь ровно тем, кто пишет реализацию по нему.
+    assert_eq!(
+        text(c, "hkdfInfoAuth").as_bytes(),
+        caesar_core::kdf::INFO_AUTH
+    );
+    assert_eq!(
+        text(c, "hkdfInfoWrap").as_bytes(),
+        caesar_core::kdf::INFO_WRAP
+    );
+    assert_eq!(
+        text(c, "hkdfInfoShare").as_bytes(),
+        caesar_core::vault::INFO_SHARE
+    );
+
+    assert_eq!(
+        number(c, "argon2Version") as u32,
+        caesar_core::kdf::ARGON2_VERSION_NUMBER
+    );
+    assert_eq!(
+        text(c, "argon2VersionHex"),
+        format!("0x{:02x}", caesar_core::kdf::ARGON2_VERSION_NUMBER)
+    );
+    assert_eq!(
+        number(c, "argon2OutputLen"),
+        caesar_core::kdf::DERIVED_KEY_LEN
+    );
+    assert_eq!(
+        number(c, "hkdfOutputLen"),
+        caesar_core::kdf::DERIVED_KEY_LEN
+    );
+    // Пустая соль — не «поле забыли»: HKDF для auth и wrap зовётся без соли.
+    assert_eq!(text(c, "hkdfSaltAuth"), "");
+    assert_eq!(text(c, "hkdfSaltWrap"), "");
 }
 
 #[test]
@@ -165,10 +201,12 @@ fn kdf_known_answer_matches_vectors() {
 #[test]
 fn kdf_params_encoding_matches_vectors() {
     let v = vectors();
+    let mut derived = 0usize;
     for entry in cases(&v, &["kdf", "paramsEncoding"]) {
+        let name = text(entry, "name");
         let encoded = bytes(entry, "encoded");
-        let params = KdfParams::decode(&encoded)
-            .unwrap_or_else(|e| panic!("case {} rejected: {e}", text(entry, "name")));
+        let params =
+            KdfParams::decode(&encoded).unwrap_or_else(|e| panic!("case {name} rejected: {e}"));
 
         assert_eq!(params.m_cost as usize, number(entry, "mCost"));
         assert_eq!(params.t_cost as usize, number(entry, "tCost"));
@@ -179,7 +217,75 @@ fn kdf_params_encoding_matches_vectors() {
             encoded,
             "re-encoding is not byte-identical"
         );
+
+        // Разбор и переупаковка параметров ничего не говорят о том, что клиент
+        // на них СЧИТАЕТ: реализация, зашившая свои умолчания и игнорирующая
+        // присланные сервером параметры, проходит проверки выше целиком.
+        //
+        // `deriveSafe: false` — не «пропустить случай», а запрет: `atCeiling`
+        // просит у Argon2id 4 ГиБ. Флаг обязателен у каждого случая, чтобы
+        // забытое поле не превращалось молча в «выводить не надо».
+        match entry["deriveSafe"].as_bool() {
+            Some(true) => {
+                let mk = derive_master_key(text(entry, "password"), &params)
+                    .unwrap_or_else(|e| panic!("case {name} failed to derive: {e}"));
+                assert_eq!(
+                    hex::encode(mk.as_bytes()),
+                    text(entry, "masterKey"),
+                    "{name}"
+                );
+                derived += 1;
+            }
+            Some(false) => assert!(
+                entry.get("masterKey").is_none(),
+                "case {name} is marked derive-unsafe but pins a master key"
+            ),
+            None => panic!("case {name} has no deriveSafe flag"),
+        }
     }
+    // Один набор параметров — это то же самое, что ни одного: он неотличим от
+    // зашитых умолчаний.
+    assert!(
+        derived > 1,
+        "only {derived} parameter set(s) were derived from"
+    );
+}
+
+#[test]
+fn password_normalization_matches_vectors() {
+    // Ядро приводит пароль к NFC. Без этого «é», набранное как U+0065 U+0301,
+    // даёт другой мастер-ключ, чем «é» как U+00E9: хранилище, созданное в
+    // Swift, не открывается в браузере, а тесты каждой платформы зелёные.
+    let v = vectors();
+    let entry = &v["kdf"]["passwordNormalization"];
+    let params = KdfParams::decode(&bytes(entry, "encodedParams")).expect("pinned params decode");
+    assert_eq!(text(entry, "intendedForm"), "NFC");
+
+    for (form, utf8) in [
+        ("passwordNfc", "passwordNfcUtf8"),
+        ("passwordNfd", "passwordNfdUtf8"),
+    ] {
+        // Сначала — что в файле лежит именно то, что заявлено: редактор или
+        // git-фильтр, нормализовавший файл сам, обесценил бы весь случай.
+        let password = text(entry, form);
+        assert_eq!(
+            hex::encode(password.as_bytes()),
+            text(entry, utf8),
+            "{form}"
+        );
+
+        let mk = derive_master_key(password, &params).expect("pinned params are in range");
+        assert_eq!(
+            hex::encode(mk.as_bytes()),
+            text(entry, "masterKey"),
+            "{form}"
+        );
+    }
+    assert_ne!(
+        text(entry, "passwordNfcUtf8"),
+        text(entry, "passwordNfdUtf8"),
+        "the two spellings must differ in bytes, or the case proves nothing"
+    );
 }
 
 #[test]
@@ -204,6 +310,16 @@ fn envelope_layout_matches_vectors() {
     assert_eq!(
         number(layout, "ciphertextOffset"),
         caesar_core::envelope::HEADER_LEN + caesar_core::envelope::NONCE_LEN
+    );
+    // AAD — нормативное поле: реализация, передавшая в AEAD пустой AAD или один
+    // байт версии, получит другой тег при всём остальном верном. Ловит это
+    // сверка конверта байт-в-байт ниже, но объявленное значение до сих пор не
+    // проверял никто, и разойтись с кодом оно могло молча.
+    assert_eq!(bytes(layout, "aad"), caesar_core::envelope::HEADER);
+    assert_eq!(
+        layout["aadIsHeader"].as_bool(),
+        Some(true),
+        "aadIsHeader must state that the AAD is exactly the header"
     );
 
     for entry in cases(&v, &["envelope", "valid"]) {
@@ -265,6 +381,32 @@ fn key_wrapping_matches_vectors() {
     assert_eq!(
         hex::encode(vault_key.as_bytes()),
         text(vault_entry, "plaintext")
+    );
+
+    // «Разворачивается» — половина утверждения: обёртки этой секции до сих пор
+    // держались на побайтовом совпадении с `envelope.valid`, то есть проверялись
+    // не здесь и только пока совпадение случайно сохраняется. Реализация,
+    // завернувшая те же ключи иначе (другой AAD, другой порядок полей), обязана
+    // расходиться именно тут.
+    assert_eq!(
+        aead::seal_with_nonce(
+            &key32(section, "keyEncryptionKey"),
+            &nonce24(user_entry, "nonce"),
+            user_key.secret_bytes(),
+        )
+        .expect("sealing a vector payload"),
+        bytes(user_entry, "wrapped"),
+        "the wrapped user key is not reproducible byte for byte"
+    );
+    assert_eq!(
+        aead::seal_with_nonce(
+            &key32(section, "keyEncryptionKey"),
+            &nonce24(vault_entry, "nonce"),
+            vault_key.as_bytes(),
+        )
+        .expect("sealing a vector payload"),
+        bytes(vault_entry, "wrapped"),
+        "the wrapped vault key is not reproducible byte for byte"
     );
 }
 
@@ -353,6 +495,63 @@ fn sealed_vault_key_rejects_invalid_vectors() {
         assert_rejected(
             entry,
             vault::open_vault_key_for(&recipient, &bytes(entry, "sealed")),
+        );
+    }
+}
+
+#[test]
+fn emergency_kit_layout_matches_vectors() {
+    // Блок `layout` нормативен: по нему пишут кодировщик на Swift и в браузере.
+    // Проверяется он поведением, а не чтением приватных констант, — это заодно
+    // независимое изложение раскладки.
+    let v = vectors();
+    let layout = &v["emergencyKit"]["layout"];
+    let alphabet = text(layout, "alphabet");
+    let symbols = number(layout, "symbols");
+    let groups = number(layout, "groups");
+    let group_size = number(layout, "groupSize");
+
+    assert_eq!(alphabet.chars().count(), 32, "Base32 needs 32 symbols");
+    for excluded in ['I', 'L', 'O', 'U'] {
+        assert!(
+            !alphabet.contains(excluded),
+            "Crockford excludes {excluded} from the alphabet"
+        );
+    }
+    assert_eq!(
+        groups * group_size,
+        symbols,
+        "groups do not cover the payload"
+    );
+
+    let printed = recovery::format_emergency_kit(&RecoveryKey::from_bytes([0x5A; 32]));
+    let body: String = printed.chars().filter(|&c| c != '-').collect();
+    assert_eq!(body.chars().count(), symbols, "printed symbol count");
+    assert_eq!(
+        printed.chars().count(),
+        symbols + groups - 1,
+        "printed length is symbols plus separators"
+    );
+    assert!(
+        body.chars().all(|c| alphabet.contains(c)),
+        "the encoder printed a symbol outside the declared alphabet"
+    );
+
+    // Подстановки: заявлено «I и L читаются как 1, O как 0» — значит, набор,
+    // где каждая цифра заменена на свою букву, обязан разобраться в тот же ключ.
+    let expected = recovery::parse_emergency_kit(&printed).expect("control: canonical kit parses");
+    for (letter, digit) in layout["substitutions"]
+        .as_object()
+        .expect("substitutions is an object")
+    {
+        let digit = digit.as_str().expect("substitution target is a string");
+        let substituted = printed.replace(digit, letter);
+        assert_eq!(
+            recovery::parse_emergency_kit(&substituted)
+                .unwrap_or_else(|e| panic!("substitution {letter}->{digit} was rejected: {e}"))
+                .as_bytes(),
+            expected.as_bytes(),
+            "substitution {letter}->{digit} decoded differently"
         );
     }
 }
@@ -475,6 +674,21 @@ fn item_rejects_invalid_vectors() {
     let v = vectors();
     let vault_key = VaultKey::from_bytes(key32(&v["item"], "vaultKey"));
     for entry in cases(&v, &["item", "invalid"]) {
+        // Отрицательный случай публикует и `paddedPlaintext`, и `nonce` — ими
+        // он и объясняет, ЧЕМ именно плох. Непроверенные, они разъезжаются с
+        // конвертом молча, и файл начинает объяснять не тот отказ, который
+        // проверяет. Та же сверка, что в `item_envelopes_match_vectors`.
+        assert_eq!(
+            aead::seal_with_nonce(
+                vault_key.as_bytes(),
+                &nonce24(entry, "nonce"),
+                &bytes(entry, "paddedPlaintext"),
+            )
+            .expect("sealing a vector payload"),
+            bytes(entry, "envelope"),
+            "case {} does not seal to its own envelope",
+            text(entry, "name")
+        );
         assert_rejected(
             entry,
             caesar_core::open_item(&bytes(entry, "envelope"), &vault_key),

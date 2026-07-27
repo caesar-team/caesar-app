@@ -26,12 +26,13 @@
 
 use caesar_core::envelope::{HEADER, HEADER_LEN, MIN_ENVELOPE_LEN, NONCE_LEN, TAG_LEN};
 use caesar_core::kdf::{
-    auth_key, derive_master_key, key_encryption_key, KdfParams, KDF_ALGO_ARGON2ID, KDF_PARAMS_LEN,
-    KDF_VERSION, MAX_M_COST, MAX_P_COST, MAX_T_COST, MIN_M_COST, MIN_P_COST, MIN_T_COST, SALT_LEN,
+    auth_key, derive_master_key, key_encryption_key, KdfParams, ARGON2_VERSION_NUMBER,
+    DERIVED_KEY_LEN, INFO_AUTH, INFO_WRAP, KDF_ALGO_ARGON2ID, KDF_PARAMS_LEN, KDF_VERSION,
+    MAX_M_COST, MAX_P_COST, MAX_T_COST, MIN_M_COST, MIN_P_COST, MIN_T_COST, SALT_LEN,
 };
 use caesar_core::keys::{RecoveryKey, VaultKey};
-use caesar_core::model::{ItemKind, ItemSecret};
-use caesar_core::vault::{self, UserKeyPair, EPHEMERAL_PUBLIC_LEN};
+use caesar_core::model::{CustomField, ItemKind, ItemSecret};
+use caesar_core::vault::{self, UserKeyPair, EPHEMERAL_PUBLIC_LEN, INFO_SHARE};
 use caesar_core::{aead, recovery, Error, ITEM_SCHEMA_VERSION, PROTOCOL_VERSION, SUITE_ID};
 use serde_json::{json, Map, Value};
 
@@ -57,6 +58,12 @@ const EPHEMERAL_SECRET: [u8; 32] = [0x11; 32];
 /// рабочим кодом.
 const MIN_BUCKET: usize = 512;
 const LEN_PREFIX_LEN: usize = 4;
+
+/// Документ из будущей версии схемы, который разобрался успешно: `v=2` и ни
+/// одного незнакомого поля. Такой айтем ПРИНИМАЕТСЯ — отказ был бы отказом от
+/// совместимого документа. Отсюда же строятся оба отрицательных случая, чтобы
+/// разница между принятым и отвергнутым была ровно заявленной.
+const FUTURE_KNOWN_FIELDS_JSON: &str = r#"{"v":2,"kind":"login","title":"Northwind Bank"}"#;
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -139,7 +146,19 @@ fn main() {
             "Списки `invalid` обязаны отвергаться: `error` — имя варианта Error.",
             "Конверты воспроизводимы байт-в-байт при данном `nonce`; реализация,",
             "которая не умеет задавать nonce, обязана хотя бы открыть их и сверить",
-            "открытый текст."
+            "открытый текст.",
+            "`deriveSafe: false` — НЕ выводить ключ из этих параметров: `atCeiling`",
+            "просит у Argon2id 4 ГиБ, и раннер, выводящий из каждого случая подряд,",
+            "уронит машину CI, а не тест.",
+            "Все длины (`jsonLength`, `paddedLength`, `envelopeLength`) — в БАЙТАХ",
+            "UTF-8, а не в кодовых единицах UTF-16: `\"…\".length` в JS и `count` в",
+            "Swift дадут другое число на эмодзи и кириллице.",
+            "Пароль нормализуется к NFC внутри ядра (см. `kdf.passwordNormalization`).",
+            "Вызывающие не должны нормализовать его сами.",
+            "Три варианта Error покрыть вектором нельзя, и искать их здесь не надо:",
+            "`PlaintextTooLarge` (айтем ≥ 4 ГиБ), `KeyDerivation` (внутренний отказ",
+            "argon2 — параметры вне диапазона отсекает KdfParamsOutOfRange раньше)",
+            "и `RandomSourceUnavailable` (отказ CSPRNG платформы)."
         ],
         "constants": constants(),
         "kdf": kdf_section(),
@@ -178,10 +197,34 @@ fn constants() -> Value {
         "maxMCost": MAX_M_COST,
         "maxTCost": MAX_T_COST,
         "maxPCost": MAX_P_COST,
-        "hkdfInfoAuth": "caesar/auth/v1",
-        "hkdfInfoWrap": "caesar/wrap/v1",
-        "hkdfInfoShare": "caesar/share/v1",
+        // Argon2id целиком: без версии и длины выхода по этому файлу нельзя
+        // написать совместимый KDF, а обе величины попадают в ключ так же
+        // жёстко, как соль.
+        "argon2Algorithm": "Argon2id",
+        "argon2Version": ARGON2_VERSION_NUMBER,
+        "argon2VersionHex": format!("0x{ARGON2_VERSION_NUMBER:02x}"),
+        "argon2OutputLen": DERIVED_KEY_LEN,
+        "passwordEncoding": "UTF-8, нормализованный к NFC ядром",
+        // HKDF целиком по той же причине. Соль auth и wrap — пустая; по
+        // RFC 5869 это HashLen нулевых байт, и реализация, подставившая туда
+        // мастер-ключ или домен, получит другой ключ при верном `info`.
+        "hkdfHash": "SHA-256",
+        "hkdfOutputLen": DERIVED_KEY_LEN,
+        "hkdfIkm": "masterKey(32)",
+        "hkdfSaltAuth": "",
+        "hkdfSaltWrap": "",
+        "hkdfSaltNote": "пустая соль = 32 нулевых байта (RFC 5869)",
+        // Строки берутся из самих констант: подпись, разошедшаяся со значением,
+        // была бы ложью ровно тем, ради кого этот файл существует.
+        "hkdfInfoAuth": ascii(INFO_AUTH),
+        "hkdfInfoWrap": ascii(INFO_WRAP),
+        "hkdfInfoShare": ascii(INFO_SHARE),
     })
+}
+
+/// Домен HKDF как строка. Домены — ASCII по построению.
+fn ascii(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).expect("HKDF domains are ASCII")
 }
 
 fn kdf_section() -> Value {
@@ -319,10 +362,10 @@ fn kdf_section() -> Value {
         );
     }
 
-    // Границы принимаются: пол и потолок — включительные. Вывод ключа на них не
-    // запускается (4 ГиБ памяти), проверяется только `decode`.
+    // Границы принимаются: пол и потолок — включительные.
     let at_floor = params_at(MIN_M_COST, MIN_T_COST, MIN_P_COST, [0x00; SALT_LEN]);
     let at_ceiling = params_at(MAX_M_COST, MAX_T_COST, MAX_P_COST, [0xFF; SALT_LEN]);
+    let distinct = params_at(20480, 5, 2, sequential_salt());
 
     json!({
         "knownAnswer": {
@@ -336,15 +379,72 @@ fn kdf_section() -> Value {
             "authKey": hex(ak.as_bytes()),
             "keyEncryptionKey": hex(kek.as_bytes()),
         },
+        "passwordNormalization": password_normalization(),
         "paramsEncoding": [
-            encoded_params_case("pinned", &params),
+            // Ключ выводится из трёх наборов, а не из одного: реализация,
+            // игнорирующая присланные сервером параметры и зашившая свои
+            // умолчания, на одном лишь `pinned` неотличима от верной.
+            derivable_params_case("pinned", &params),
             // Три разных значения подряд: перепутанный порядок полей или
             // big-endian видно сразу, чего вектор 65536/3/4 не показывает.
-            encoded_params_case("distinctFields", &params_at(20480, 5, 2, sequential_salt())),
-            encoded_params_case("atFloor", &at_floor),
-            encoded_params_case("atCeiling", &at_ceiling),
+            derivable_params_case("distinctFields", &distinct),
+            derivable_params_case("atFloor", &at_floor),
+            // 4 ГиБ памяти: единственный набор, из которого выводить нельзя.
+            encoded_params_case(
+                "atCeiling",
+                &at_ceiling,
+                vec![
+                    ("deriveSafe", json!(false)),
+                    (
+                        "why",
+                        json!("m=4194304 КиБ — Argon2id попросит у системы 4 ГиБ: раннер, \
+                               выводящий ключ из каждого случая подряд, уронит машину CI"),
+                    ),
+                ],
+            ),
         ],
         "invalid": invalid,
+    })
+}
+
+/// Пароль, набранный в двух нормальных формах Unicode. Один и тот же пароль
+/// для пользователя, разные байты для Argon2id — и разный мастер-ключ у любой
+/// реализации, которая не нормализует.
+///
+/// Обе записи печатаются и строкой, и hex'ом их UTF-8: строка читается глазом,
+/// hex переживает редактор или git-фильтр, который вздумал бы нормализовать
+/// файл сам. Раннер обязан сверить одно с другим.
+fn password_normalization() -> Value {
+    const NFC: &str = "caf\u{00E9} au lait";
+    const NFD: &str = "cafe\u{0301} au lait";
+    assert_ne!(NFC.as_bytes(), NFD.as_bytes(), "the two spellings differ");
+
+    // Пол параметров: 19 МиБ и два прохода — вывод дешёвый, а набор при этом
+    // рабочий, не ослабленный ради теста.
+    let params = params_at(MIN_M_COST, MIN_T_COST, MIN_P_COST, [0x4E; SALT_LEN]);
+    let from_nfc = derive_master_key(NFC, &params).expect("floor params are in range");
+    let from_nfd = derive_master_key(NFD, &params).expect("floor params are in range");
+    assert_eq!(
+        from_nfc.as_bytes(),
+        from_nfd.as_bytes(),
+        "the core must normalize the password before Argon2id"
+    );
+
+    json!({
+        "intendedForm": "NFC",
+        "passwordNfc": NFC,
+        "passwordNfcUtf8": hex(NFC.as_bytes()),
+        "passwordNfd": NFD,
+        "passwordNfdUtf8": hex(NFD.as_bytes()),
+        "mCost": params.m_cost,
+        "tCost": params.t_cost,
+        "pCost": params.p_cost,
+        "salt": hex(&params.salt),
+        "encodedParams": hex(&params.encode()),
+        "masterKey": hex(from_nfc.as_bytes()),
+        "why": "«é» — U+00E9 или U+0065 U+0301 в зависимости от платформы и источника \
+                строки; ядро приводит пароль к NFC, поэтому обе записи обязаны дать \
+                один мастер-ключ, а клиенты не должны нормализовать сами",
     })
 }
 
@@ -356,15 +456,32 @@ fn sequential_salt() -> [u8; SALT_LEN] {
     salt
 }
 
-fn encoded_params_case(name: &str, params: &KdfParams) -> Value {
-    case(
+/// Случай `paramsEncoding`: раскладка байт плюс то, что из неё выводится.
+///
+/// `extra` — `deriveSafe` и всё, что зависит от того, безопасен ли вывод;
+/// общая часть (значения полей и байты) одна на все случаи.
+fn encoded_params_case(name: &str, params: &KdfParams, extra: Vec<(&str, Value)>) -> Value {
+    let mut fields = extra;
+    fields.extend([
+        ("mCost", json!(params.m_cost)),
+        ("tCost", json!(params.t_cost)),
+        ("pCost", json!(params.p_cost)),
+        ("salt", json!(hex(&params.salt))),
+        ("encoded", json!(hex(&params.encode()))),
+    ]);
+    case(name, fields)
+}
+
+/// Случай, из которого раннер обязан вывести мастер-ключ.
+fn derivable_params_case(name: &str, params: &KdfParams) -> Value {
+    let mk = derive_master_key(PASSWORD, params).expect("vector parameters are in range");
+    encoded_params_case(
         name,
+        params,
         vec![
-            ("mCost", json!(params.m_cost)),
-            ("tCost", json!(params.t_cost)),
-            ("pCost", json!(params.p_cost)),
-            ("salt", json!(hex(&params.salt))),
-            ("encoded", json!(hex(&params.encode()))),
+            ("deriveSafe", json!(true)),
+            ("password", json!(PASSWORD)),
+            ("masterKey", json!(hex(mk.as_bytes()))),
         ],
     )
 }
@@ -930,15 +1047,40 @@ fn item_section() -> Value {
     item.tags = vec!["finance".into(), "2fa".into()];
 
     let plaintext_json = serde_json::to_string(&item).expect("an item is plain JSON");
-    let padded = pad_json(plaintext_json.as_bytes());
-    let sealed = aead::seal_with_nonce(&VAULT_KEY, &nonce(0xC1), &padded)
-        .expect("a padded item fits the ChaCha20 counter");
 
     let note = ItemSecret::new(ItemKind::SecureNote, "shed code");
     let note_json = serde_json::to_string(&note).expect("an item is plain JSON");
-    let note_padded = pad_json(note_json.as_bytes());
-    let note_sealed = aead::seal_with_nonce(&VAULT_KEY, &nonce(0xC2), &note_padded)
-        .expect("a padded item fits the ChaCha20 counter");
+
+    // `creditCard` не встречается больше нигде в файле, а `customFields` —
+    // самая сложная по форме часть `ItemSecret` и тоже нигде не закреплена.
+    // `hidden` объявлен `#[serde(default)]` без `skip_serializing_if`, то есть
+    // пишется всегда, в том числе `false`; реализация, опускающая его по
+    // умолчанию, разошлась бы с этим файлом байт-в-байт.
+    let mut card = ItemSecret::new(ItemKind::CreditCard, "Northwind Visa");
+    card.username = Some("A KERN".into());
+    card.custom_fields = vec![
+        CustomField {
+            label: "number".into(),
+            value: "4111 1111 1111 1111".into(),
+            hidden: true,
+        },
+        CustomField {
+            label: "expires".into(),
+            value: "04/29".into(),
+            hidden: false,
+        },
+    ];
+    let card_json = serde_json::to_string(&card).expect("an item is plain JSON");
+
+    // Экранирование: `open_item` обязан пересобрать конверт байт-в-байт, а
+    // serde_json, `JSON.stringify` и `JSONEncoder` расходятся ровно тут —
+    // на кавычке, слэше, переводе строки, не-ASCII и суррогатной паре.
+    let mut escaping = ItemSecret::new(
+        ItemKind::SecureNote,
+        "quote:\" backslash:\\ newline:\n tab:\t unicode:Ж astral:\u{1F510}",
+    );
+    escaping.notes = Some("длина в байтах ≠ длина в UTF-16".into());
+    let escaping_json = serde_json::to_string(&escaping).expect("an item is plain JSON");
 
     // Границы бакетов вокруг MIN_BUCKET и следующей степени двойки. Раннер
     // строит эти же айтемы сам: печатать тысячу символов заголовка в файл
@@ -983,10 +1125,16 @@ fn item_section() -> Value {
         .iter()
         .any(|entry| entry["paddedLength"] == json!(2 * MIN_BUCKET)));
 
-    let unknown_field =
-        br#"{"v":1,"kind":"login","title":"Northwind Bank","attachmentRef":"blob-1"}"#;
-    let future_schema =
-        br#"{"v":2,"kind":"login","title":"Northwind Bank","attachmentRef":"blob-1"}"#;
+    // Три документа одной семьи, каждый следующий — предыдущий плюс ровно одно
+    // изменение: принимаемый `v=2` → он же с незнакомым полем (отказ по версии)
+    // → он же с `v=1` (отказ как порча). Строятся друг из друга, а не пишутся
+    // рядом тремя литералами: разница обязана быть ровно заявленной.
+    let future_schema = format!(
+        "{},\"attachmentRef\":\"blob-1\"}}",
+        &FUTURE_KNOWN_FIELDS_JSON[..FUTURE_KNOWN_FIELDS_JSON.len() - 1]
+    );
+    let unknown_field = future_schema.replacen("\"v\":2", "\"v\":1", 1);
+    assert_eq!(unknown_field.len(), future_schema.len());
 
     // Длина не бакет: писатель другой платформы, дополняющий до кратного 16 или
     // не дополняющий вовсе. Тег Poly1305 такое не ловит — ключ-то настоящий.
@@ -1015,7 +1163,7 @@ fn item_section() -> Value {
             "unknownField",
             &vault_key,
             &nonce(0xD1),
-            &pad_json(unknown_field),
+            &pad_json(unknown_field.as_bytes()),
             "MalformedPlaintext",
             "deny_unknown_fields: поле из будущей версии нельзя молча потерять",
         ),
@@ -1023,9 +1171,19 @@ fn item_section() -> Value {
             "futureSchemaVersion",
             &vault_key,
             &nonce(0xD2),
-            &pad_json(future_schema),
+            &pad_json(future_schema.as_bytes()),
             "UnsupportedItemSchema",
-            "номер версии не редактируется: иначе перекос версий неотличим от порчи",
+            "СОСТАВНОЙ случай: документ нарушает и deny_unknown_fields, и номер \
+             версии. Диагноз в ДВА ПРОХОДА, и это правило обязательно для всех \
+             реализаций: строгий разбор падает первым (незнакомое поле может \
+             стоять до `v`, и до `v` разбор не доходит), после чего делается \
+             второй, СНИСХОДИТЕЛЬНЫЙ проход ровно за `v`; если он дал v > \
+             itemSchemaVersion, ошибка — UnsupportedItemSchema, иначе \
+             MalformedPlaintext. Реализация, возвращающая «порчу» на первом же \
+             отказе, обязана этот вектор провалить. Составность вынужденная: \
+             один только v=2 из известных полей ПРИНИМАЕТСЯ, см. \
+             valid.forwardCompatibleSchemaVersion. Номер версии при этом не \
+             редактируется — иначе перекос версий неотличим от порчи",
         ),
         item_reject_case(
             "paddedLengthIsNotABucket",
@@ -1071,33 +1229,60 @@ fn item_section() -> Value {
         },
         "vaultKey": hex(&VAULT_KEY),
         "valid": [
-            item_case("fullLogin", &nonce(0xC1), &plaintext_json, &padded, &sealed),
-            item_case("secureNote", &nonce(0xC2), &note_json, &note_padded, &note_sealed),
+            item_case("fullLogin", 0xC1, &plaintext_json, None),
+            item_case("secureNote", 0xC2, &note_json, None),
+            item_case("creditCardWithCustomFields", 0xC3, &card_json, Some(
+                "`hidden` пишется всегда, включая `false`: у него `#[serde(default)]`, \
+                 но нет `skip_serializing_if`",
+            )),
+            item_case("jsonEscaping", 0xC4, &escaping_json, Some(
+                "кавычка, обратный слэш, перевод строки, не-ASCII и суррогатная пара: \
+                 serde_json, JSON.stringify и JSONEncoder согласны здесь не во всём, \
+                 а конверт обязан пересобираться байт-в-байт",
+            )),
+            item_case("forwardCompatibleSchemaVersion", 0xC5, FUTURE_KNOWN_FIELDS_JSON, Some(
+                "v=2 из одних известных полей ПРИНИМАЕТСЯ: отказ был бы отказом от \
+                 совместимого документа. Отвергается только тот будущий документ, \
+                 который не разобрался (см. invalid.futureSchemaVersion)",
+            )),
         ],
         "bucketBoundaries": boundaries,
         "invalid": invalid,
     })
 }
 
-fn item_case(
-    name: &str,
-    nonce_bytes: &[u8; NONCE_LEN],
-    plaintext_json: &str,
-    padded: &[u8],
-    sealed: &[u8],
-) -> Value {
-    case(
-        name,
-        vec![
-            ("nonce", json!(hex(nonce_bytes))),
-            ("plaintextJson", json!(plaintext_json)),
-            ("jsonLength", json!(plaintext_json.len())),
-            ("paddedPlaintext", json!(hex(padded))),
-            ("paddedLength", json!(padded.len())),
-            ("envelope", json!(hex(sealed))),
-            ("envelopeLength", json!(sealed.len())),
-        ],
-    )
+/// Валидный случай айтема: JSON дополняется, шифруется под фиксированным nonce
+/// и тут же проверяется рабочим путём.
+///
+/// Проверка здесь, а не только в раннере, потому что часть JSON'ов написана
+/// руками (`v=2`) и породить их `ItemSecret` не умеет: без `open_item` файл мог
+/// бы объявить валидным то, что ядро отвергает.
+fn item_case(name: &str, nonce_tag: u8, plaintext_json: &str, why: Option<&str>) -> Value {
+    let padded = pad_json(plaintext_json.as_bytes());
+    let sealed = aead::seal_with_nonce(&VAULT_KEY, &nonce(nonce_tag), &padded)
+        .expect("a padded item fits the ChaCha20 counter");
+
+    let opened = caesar_core::open_item(&sealed, &VaultKey::from_bytes(VAULT_KEY))
+        .unwrap_or_else(|e| panic!("valid item case {name} was rejected: {e}"));
+    assert_eq!(
+        serde_json::to_string(&opened).expect("an item is plain JSON"),
+        plaintext_json,
+        "valid item case {name} does not re-serialize byte for byte"
+    );
+
+    let mut fields = vec![
+        ("nonce", json!(hex(&nonce(nonce_tag)))),
+        ("plaintextJson", json!(plaintext_json)),
+        ("jsonLength", json!(plaintext_json.len())),
+        ("paddedPlaintext", json!(hex(&padded))),
+        ("paddedLength", json!(padded.len())),
+        ("envelope", json!(hex(&sealed))),
+        ("envelopeLength", json!(sealed.len())),
+    ];
+    if let Some(why) = why {
+        fields.push(("why", json!(why)));
+    }
+    case(name, fields)
 }
 
 fn item_reject_case(
