@@ -1,0 +1,139 @@
+# Ворота протокола.
+#
+# Синтаксис — GitHub Actions; исполняет его Gitea Actions (act_runner).
+#
+# Что здесь закрывается:
+#   №1  векторы порождены текущим кодом, и все четыре реализации их проходят
+#   №2  версия протокола объявлена ровно один раз
+#   №4  сервер не линкует криптографическое ядро
+#   +   двери с задаваемым nonce не экспортированы, приватный ключ не пересекает
+#       границу биндингов, `debug-errors` выключена в релизе
+#
+# Ворота №3 (diff OpenAPI) относятся к M2′: сравнивать нечего, пока нет
+# `apps/server`. Появятся вместе с ним, отдельным workflow.
+#
+# `--locked` стоит на каждом вызове cargo намеренно. Без него дрейф патч-версии
+# зависимости молча меняет байты `protocol/vectors.json` — и ворота №1 падают
+# «на ровном месте» в чужом PR вместо того, чтобы падать на обновлении Cargo.lock.
+
+name: Protocol
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # --- Ворота №1: ядро и генератор векторов -----------------------------------
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Версия тулчейна задана `rust-toolchain.toml`, вместе с компонентами и
+      # целью wasm32. Действие ставит rustup, `rustup show` материализует
+      # именно ту версию, что закреплена в репозитории, а не «stable сегодня»:
+      # смена компилятора не должна менять байты векторов незаметно.
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      # Раннер векторов на Rust — единственный с полным доступом к ядру, поэтому
+      # только он сверяет конверты байт-в-байт.
+      - name: Vector runner (Rust)
+        run: cargo test -p caesar-core --locked --test vectors
+
+      # Скаффолдинг UniFFI проверяется на Linux: он не зависит от macOS, а
+      # падение контрольной суммы FFI дешевле поймать здесь, чем в swift-джобе.
+      - name: Vector runner (UniFFI crate)
+        run: cargo test -p caesar-core-uniffi --locked
+
+      # Ворота №1: файл векторов порождается текущим кодом побайтово.
+      - name: Vectors are current
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --locked -q -p caesar-core --bin gen-vectors | diff -u protocol/vectors.json -
+
+      # Ядро обязано собираться под wasm32 без std-зависимостей платформы.
+      # Отдельно от wasm-джобы: там падение утонет в выводе wasm-pack.
+      - name: Check wasm32 target
+        run: cargo check --locked --target wasm32-unknown-unknown -p caesar-core -p caesar-core-wasm
+
+  # --- Ворота №1 для TypeScript ------------------------------------------------
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      # `--target nodejs` — то же, что в `packages/core-wasm/package.json`.
+      # Ворота обязаны исполнять артефакт, который реально поедет в приложение:
+      # непроверенная сборка хуже отсутствующей. Смена цели на `bundler` для
+      # Next.js означает вторую сборку рядом, а не замену этой.
+      - name: Build wasm package
+        run: bun run --filter @caesar/core-wasm build
+
+      - name: Vector runner (TypeScript)
+        run: bun run --filter @caesar/core-wasm test
+
+  # --- Ворота №1 для Swift -----------------------------------------------------
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
+
+      # Только через `generate-bindings.sh`, и не разложенный на шаги.
+      #
+      # SwiftPM не считает внешний архив входом сборки: пересобранная
+      # `libcaesar_core_ffi.a` перелинковку не вызывает, и `swift test` после
+      # голого `cargo build --release` молча проверяет ПРОШЛУЮ версию ядра.
+      # Это найдено сабатажем: с `PROTOCOL_VERSION = 2` и без перегенерации все
+      # 27 тестов остались зелёными. Скрипт поэтому сносит `swift/.build`
+      # целиком — ворота, которые не срабатывают, хуже отсутствующих.
+      - name: Build core and generate bindings
+        run: ./swift/generate-bindings.sh
+
+      - name: Vector runner (Swift)
+        run: cd swift && swift test
+
+  # --- Ворота №2, №4 и запреты экспорта ---------------------------------------
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
+
+      # Ворота №4
+      - name: Server does not depend on the core
+        run: ./scripts/check-server-independence.sh
+
+      # Ворота №2
+      - name: Protocol version is declared once
+        run: ./scripts/check-protocol-version.sh
+
+      # Двери с задаваемым nonce и приватный ключ X25519: доки это обещают,
+      # проверяет — только здесь.
+      - name: Forbidden exports stay unexported
+        run: ./scripts/check-forbidden-exports.sh
+
+      # Редактирование деталей ошибок стоит под `#[cfg]`: одна фича отделяет
+      # zero-knowledge от логов хоста с именами полей хранилища.
+      - name: debug-errors is off in release
+        run: ./scripts/check-debug-errors-off.sh

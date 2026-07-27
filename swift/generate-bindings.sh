@@ -12,7 +12,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-cargo build -p caesar-core-uniffi --release
+# `--locked` здесь по той же причине, что и в воротах CI: дрейф патч-версии
+# зависимости не должен молча менять байты, которые проверяет раннер векторов.
+cargo build -p caesar-core-uniffi --release --locked
 
 LIB="target/release/libcaesar_core_ffi.dylib"
 GEN="swift/.generated"
@@ -28,7 +30,7 @@ rm -rf swift/.build
 # Одна команда на язык, одна и та же библиотека: расхождение между Swift и
 # Kotlin невозможно по построению.
 for language in swift kotlin; do
-  cargo run -q -p caesar-core-uniffi --bin uniffi-bindgen -- generate \
+  cargo run -q -p caesar-core-uniffi --locked --bin uniffi-bindgen -- generate \
     --library "$LIB" --no-format --language "$language" --out-dir "$GEN/$language"
 done
 

@@ -6,7 +6,7 @@
     ".": "./pkg/caesar_core_wasm.js"
   },
   "scripts": {
-    "build": "wasm-pack build ../../crates/caesar-core-wasm --target nodejs --out-dir ../../packages/core-wasm/pkg --out-name caesar_core_wasm",
+    "build": "wasm-pack build ../../crates/caesar-core-wasm --target nodejs --out-dir ../../packages/core-wasm/pkg --out-name caesar_core_wasm -- --locked",
     "test": "bun test",
     "clean": "rm -rf pkg .turbo"
   }
