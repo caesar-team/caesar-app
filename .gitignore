@@ -49,3 +49,13 @@ Thumbs.db
 .cache/
 temp/
 tmp/
+
+# Rust
+target/
+**/*.rs.bk
+
+# WASM build output
+packages/core-wasm/pkg/
+
+# UniFFI generated bindings
+bindings/
