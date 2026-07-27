@@ -31,3 +31,43 @@ pub enum Error {
     #[error("invalid emergency kit: {0}")]
     InvalidEmergencyKit(String),
 }
+
+/// Redacts detail derived from decrypted plaintext unless `debug-errors` is on.
+///
+/// serde error messages name vault fields, so they must not reach host logs
+/// in release builds of a zero-knowledge product.
+pub fn redact_plaintext_detail(detail: impl std::fmt::Display) -> String {
+    if cfg!(feature = "debug-errors") {
+        detail.to_string()
+    } else {
+        "redacted (build with the debug-errors feature for detail)".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(feature = "debug-errors"))]
+    #[test]
+    fn default_build_redacts_plaintext_detail() {
+        let detail = "unknown field `totpSecret`, expected one of `login`, `password`";
+        let redacted = redact_plaintext_detail(detail);
+
+        assert!(!redacted.contains("totpSecret"));
+        assert!(!redacted.contains("password"));
+        assert_eq!(
+            redacted,
+            "redacted (build with the debug-errors feature for detail)"
+        );
+    }
+
+    #[cfg(feature = "debug-errors")]
+    #[test]
+    fn debug_errors_build_keeps_plaintext_detail() {
+        assert_eq!(
+            redact_plaintext_detail("unknown field `totpSecret`"),
+            "unknown field `totpSecret`"
+        );
+    }
+}
