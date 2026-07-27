@@ -59,3 +59,7 @@ packages/core-wasm/pkg/
 
 # UniFFI generated bindings
 bindings/
+swift/.build/
+swift/.generated/
+swift/Sources/CaesarCore/CaesarCore.swift
+swift/Sources/CaesarCoreFFI/include/

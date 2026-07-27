@@ -1,0 +1,13 @@
+# Имена модулей выбраны под таргеты SwiftPM в `swift/Package.swift`: имя модуля
+# в module map обязано совпадать с именем таргета, иначе SwiftPM не соберёт
+# C-таргет. По умолчанию UniFFI взял бы неймспейс `caesar_core_ffi`.
+[bindings.swift]
+module_name = "CaesarCore"
+ffi_module_name = "CaesarCoreFFI"
+ffi_module_filename = "CaesarCoreFFI"
+generate_module_map = true
+
+# Kotlin-биндинги генерируются одной командой рядом со Swift, но раннера для них
+# нет: он приедет в M6′ вместе с `apps/mobile`.
+[bindings.kotlin]
+package_name = "app.caesar.core"

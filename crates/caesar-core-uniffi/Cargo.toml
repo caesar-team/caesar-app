@@ -1,0 +1,28 @@
+[package]
+name = "caesar-core-uniffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Имя библиотеки — оно же неймспейс UniFFI и имя символов в `libcaesar_core_ffi.a`.
+# `staticlib` линкуется в SwiftPM-пакет `swift/`, `cdylib` нужен генератору
+# биндингов (режим `--library` читает метаданные из собранного артефакта),
+# `lib` — бинарнику `uniffi-bindgen` ниже.
+[lib]
+name = "caesar_core_ffi"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+# Генератор биндингов — бинарник этого крейта, а не глобально установленный
+# `uniffi-bindgen`: версия генератора обязана совпадать с версией скаффолдинга,
+# иначе биндинги собираются и падают в рантайме на несовпадении контрольной
+# суммы FFI.
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi_bindgen.rs"
+
+[dependencies]
+caesar-core = { path = "../caesar-core" }
+uniffi = { workspace = true, features = ["cli"] }
+serde_json.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
