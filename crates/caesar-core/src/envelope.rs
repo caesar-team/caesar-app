@@ -9,23 +9,61 @@ pub const TAG_LEN: usize = 16;
 /// Минимальная длина конверта: заголовок + nonce + тег пустого текста.
 pub const MIN_ENVELOPE_LEN: usize = HEADER_LEN + NONCE_LEN + TAG_LEN;
 
+/// Заголовок, который пишет `encode` и который передаётся в AEAD как AAD.
+/// Единственный источник правды: `seal` в Task 5 обязан использовать его,
+/// а не собирать массив заново.
+pub const HEADER: [u8; HEADER_LEN] = [PROTOCOL_VERSION, SUITE_ID];
+
 /// Разобранный конверт: заголовок проверен, части выделены.
 ///
-/// `Debug` безопасен: внутри только nonce, шифротекст и заголовок —
-/// ключей и открытого текста здесь нет.
-#[derive(Debug)]
+/// Это заимствованное представление буфера: оно живёт ровно столько, сколько
+/// живёт исходный срез, и не предназначено для пересечения языковой границы —
+/// не помечайте его `#[uniffi::export]`.
+///
+/// `Debug` реализован вручную, чтобы тесты могли звать `unwrap_err()` на
+/// `Result<ParsedEnvelope, _>`, но содержимое редактируется: шифротекст — не
+/// открытый текст, однако производный `Debug` сделал бы любой агрегатор логов
+/// новым непроверенным хранителем зашифрованных хранилищ пользователей.
+/// Отлаживать всё равно нужно длины.
+#[non_exhaustive]
 pub struct ParsedEnvelope<'a> {
     pub nonce: &'a [u8; NONCE_LEN],
     pub ciphertext: &'a [u8],
     /// Заголовок целиком — он передаётся в AEAD как AAD.
+    ///
+    /// Сегодня заголовок всегда `[1, 1]`, и отказ при подмене даёт явная
+    /// проверка в `decode`, а не тег. AAD существует ради версии 2: когда
+    /// `decode` начнёт принимать несколько версий, тег будет привязывать
+    /// шифротекст к тому заголовку, под которым он был запечатан.
+    /// Проверки в `decode` удалять нельзя — они дают точную ошибку.
     pub aad: &'a [u8],
 }
 
+impl std::fmt::Debug for ParsedEnvelope<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedEnvelope")
+            .field("nonce", &format_args!("[{} bytes]", NONCE_LEN))
+            .field(
+                "ciphertext",
+                &format_args!("[{} bytes]", self.ciphertext.len()),
+            )
+            .field("aad", &self.aad)
+            .finish()
+    }
+}
+
 /// Собирает конверт из nonce и шифротекста.
+///
+/// Предусловие: `ciphertext` уже включает тег AEAD, то есть его длина не
+/// меньше [`TAG_LEN`]. Конверт короче [`MIN_ENVELOPE_LEN`] его собственный
+/// [`decode`] отвергнет как `Truncated`.
 pub fn encode(nonce: &[u8; NONCE_LEN], ciphertext: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(MIN_ENVELOPE_LEN + ciphertext.len());
-    out.push(PROTOCOL_VERSION);
-    out.push(SUITE_ID);
+    debug_assert!(
+        ciphertext.len() >= TAG_LEN,
+        "ciphertext must include the AEAD tag"
+    );
+    let mut out = Vec::with_capacity(HEADER_LEN + NONCE_LEN + ciphertext.len());
+    out.extend_from_slice(&HEADER);
     out.extend_from_slice(nonce);
     out.extend_from_slice(ciphertext);
     out
@@ -67,11 +105,16 @@ mod tests {
 
     #[test]
     fn encodes_header_then_nonce_then_ciphertext() {
-        let out = encode(&[0xAB; NONCE_LEN], &[1, 2, 3]);
+        // Смещения 2 и 26 захардкожены намеренно: они закрепляют формат на
+        // проводе независимо от констант. Если кто-то поменяет NONCE_LEN,
+        // тест обязан упасть громко, а не молча поехать следом за константой.
+        // Не «упрощать» до HEADER_LEN / HEADER_LEN + NONCE_LEN.
+        let ciphertext = [7u8; TAG_LEN];
+        let out = encode(&[0xAB; NONCE_LEN], &ciphertext);
         assert_eq!(out[0], PROTOCOL_VERSION);
         assert_eq!(out[1], SUITE_ID);
         assert_eq!(&out[2..26], &[0xAB; NONCE_LEN]);
-        assert_eq!(&out[26..], &[1, 2, 3]);
+        assert_eq!(&out[26..], &ciphertext);
     }
 
     #[test]
@@ -116,5 +159,25 @@ mod tests {
             decode(&[1, 1, 0, 0]),
             Err(Error::Truncated { .. })
         ));
+    }
+
+    #[test]
+    fn accepts_exactly_minimum_length_as_empty_plaintext() {
+        let encoded = encode(&[0; NONCE_LEN], &[0; TAG_LEN]);
+        assert_eq!(encoded.len(), MIN_ENVELOPE_LEN);
+        assert_eq!(decode(&encoded).unwrap().ciphertext.len(), TAG_LEN);
+    }
+
+    #[test]
+    fn rejects_one_byte_below_minimum() {
+        let mut encoded = encode(&[0; NONCE_LEN], &[0; TAG_LEN]);
+        encoded.pop();
+        assert_eq!(
+            decode(&encoded).unwrap_err(),
+            Error::Truncated {
+                got: MIN_ENVELOPE_LEN - 1,
+                need: MIN_ENVELOPE_LEN
+            }
+        );
     }
 }
