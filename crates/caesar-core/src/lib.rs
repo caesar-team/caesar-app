@@ -4,11 +4,13 @@
 //!
 //! Крейт не содержит сети, хранилища и UI. Все функции — от байтов к байтам.
 
+pub mod aead;
 pub mod envelope;
 pub mod error;
 pub mod kdf;
 pub mod keys;
 
+pub use aead::{open, seal};
 pub use error::{Error, Result};
 pub use kdf::{auth_key, derive_master_key, key_encryption_key, KdfParams};
 pub use keys::{AuthKey, KeyEncryptionKey, MasterKey, RecoveryKey, VaultKey};
