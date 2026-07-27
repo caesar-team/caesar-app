@@ -27,9 +27,16 @@ pub struct UserKeyPair {
 /// Выводит публичную половину X25519. Единственное место, где приватный ключ
 /// вообще попадает в `StaticSecret`.
 ///
-/// `StaticSecret` реализует `ZeroizeOnDrop` не безусловно, а под фичей
-/// `zeroize` крейта: она приходит из его default-фич и потому явно закреплена в
-/// корневом `Cargo.toml`. Без неё клэмпнутая копия ключа осталась бы на стеке.
+/// `StaticSecret` затирается при выходе из области видимости не безусловно, а
+/// под фичей `zeroize` крейта: она приходит из его default-фич и потому явно
+/// закреплена в корневом `Cargo.toml`. Без неё клэмпнутая копия ключа осталась
+/// бы на стеке.
+///
+/// Механизм — `#[zeroize(drop)]`, а не маркерный трейт: x25519-dalek 2.0.1
+/// вешает на `StaticSecret` атрибут, который генерирует `Drop`, вызывающий
+/// `zeroize()`. Самого трейта `ZeroizeOnDrop` в крейте нет нигде, поэтому
+/// `_assert_zeroize_on_drop::<StaticSecret>()` из тестов ниже не скомпилируется.
+/// Эффект тот же, проверить его типом — нельзя.
 fn public_from_secret(secret: &[u8; 32]) -> [u8; 32] {
     use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -69,9 +76,13 @@ impl UserKeyPair {
     /// `from_secret([0u8; 32])` даёт валидную пару, которую воспроизведёт кто
     /// угодно, и сообщить об этом наружу нечем — тип возврата без ошибки.
     /// Внутри крейта это нужно (генератор векторов задачи 10). Биндинги задач
-    /// 11 и 13 обязаны выставлять только `generate()` и `unwrap_user_key()`;
-    /// ни `from_secret`, ни `try_from_slice` через UniFFI или wasm-bindgen не
-    /// экспортируются.
+    /// 11 и 13 обязаны выставлять только `generate()` и `unwrap_user_key()`.
+    ///
+    /// Не экспортируются через UniFFI и wasm-bindgen: `from_secret`,
+    /// `try_from_slice` и [`Self::secret_bytes`]. Последний в этом списке
+    /// главный: он единственный отдаёт хосту сырой приватный ключ X25519.
+    /// Убрать его нельзя — на нём держится `wrap_user_key`, — поэтому кроме
+    /// этой строки поймать его экспорт негде.
     pub fn from_secret(secret: [u8; 32]) -> Self {
         let public = public_from_secret(&secret);
         Self { secret, public }
@@ -109,6 +120,31 @@ impl std::fmt::Debug for UserKeyPair {
         }
         f.write_str(", secret: [redacted] }")
     }
+}
+
+/// Строит публичный ключ из среза произвольной длины. Единственная точка
+/// проверки длины для публичных ключей: зеркалит `try_from_slice` из `keys.rs`,
+/// который закрывает все секретные типы, и `UserKeyPair::try_from_slice`.
+///
+/// Существует ради биндингов. `seal_vault_key_for` и `unwrap_user_key_verified`
+/// принимают `&[u8; 32]`, а этот тип не проходит ни через UniFFI, ни через
+/// wasm-bindgen: обе задачи (11 и 13) иначе завели бы каждая свой `try_into` со
+/// своей ошибкой — ровно та развилка, ради устранения которой в задаче 6
+/// появился `try_from_slice`, и единственный слот, до которого та правка не
+/// дотянулась.
+///
+/// Функция, а не newtype `UserPublicKey`: newtype пришлось бы протаскивать
+/// через обе сигнатуры, `UserKeyPair::public_bytes` и все тесты, а держать он
+/// стал бы ровно один инвариант — длину. Публичный ключ не секрет, ему не нужны
+/// ни зачистка, ни редактированный `Debug`, ни защита от перепутанных
+/// аргументов (другого 32-байтного публичного ключа в крейте нет). Проверка
+/// вырожденности живёт в `seal_vault_key_for`, а не здесь: она требует
+/// эфемерного секрета и потому невыразима в конструкторе.
+pub fn public_key_from_slice(bytes: &[u8]) -> Result<[u8; 32]> {
+    bytes.try_into().map_err(|_| Error::InvalidKeyLength {
+        got: bytes.len(),
+        expected: 32,
+    })
 }
 
 /// Оборачивает приватный ключ пользователя ключом обёртки.
@@ -163,6 +199,18 @@ pub fn unwrap_vault_key(kek: &KeyEncryptionKey, wrapped: &[u8]) -> Result<VaultK
 /// эфемерный ключ имеет большой порядок. Точка малого порядка в префиксе даёт
 /// нулевой общий секрет с *любым* приватным ключом, и без получателя в соли
 /// одна такая запись открывалась бы всеми участниками сразу.
+///
+/// Зеркальный вопрос — что будет, если вырожден ключ *получателя*, — и есть
+/// опасный случай, а соль от него не спасает, наоборот. Общий секрет снова
+/// нулевой, но теперь нули знает не только отправитель: обе половины соли
+/// публичны, эфемерный ключ лежит в самой записи, ключ получателя опубликован
+/// сервером. Все входы KDF становятся общедоступными, и VK читает любой, кто
+/// однажды увидел запись, — без секретов, пассивно, из бэкапа год спустя. В
+/// вырожденном эфемерном случае секрет хотя бы был у отправителя; здесь
+/// секрета не существует вовсе. Поэтому `seal_vault_key_for` отклоняет такой
+/// ключ получателя (`Error::DegenerateRecipientKey`) до вызова этой функции, а
+/// `open_vault_key_for` — нет: там вырожденный эфемерный ключ безвреден и
+/// проверяется тестом на переадресацию ниже.
 fn shared_key(
     shared_secret: &[u8; 32],
     ephemeral_public: &[u8; 32],
@@ -203,6 +251,12 @@ pub fn seal_vault_key_for(recipient_public: &[u8; 32], vault_key: &VaultKey) -> 
     let ephemeral_public = public_from_secret(&ephemeral_secret);
     let shared =
         StaticSecret::from(*ephemeral_secret).diffie_hellman(&PublicKey::from(*recipient_public));
+    // Точка малого порядка в роли ключа получателя обнуляет общий секрет и
+    // делает все входы HKDF публичными: см. `Error::DegenerateRecipientKey` и
+    // док `shared_key`. Единственное место, где это ловится, — здесь.
+    if !shared.was_contributory() {
+        return Err(Error::DegenerateRecipientKey);
+    }
     let key = shared_key(shared.as_bytes(), &ephemeral_public, recipient_public);
 
     let envelope = aead::seal(&key, vault_key.as_bytes())?;
@@ -483,6 +537,19 @@ mod tests {
 
     #[test]
     fn each_seal_uses_a_fresh_ephemeral_key() {
+        // Чего повтор эфемерного ключа здесь НЕ означает: раскрытия открытого
+        // текста. `aead::seal` берёт свежий nonce XChaCha20 на каждый вызов,
+        // поэтому две записи под одним ключом остаются двумя разными
+        // шифротекстами. Проблема — связываемость и гигиена: одинаковый
+        // префикс публично помечает записи как «сделаны одним отправителем в
+        // одном заходе», а форматы с несколькими получателями на один
+        // эфемерный ключ (см. док `shared_key`) начинают целиком зависеть от
+        // соли. Сюда же — заклинивший CSPRNG, который этот тест и ловит.
+        //
+        // Чего этот тест не доказывает: что эфемерному ключу хватит энтропии.
+        // Две выборки ничего не говорят о вероятности коллизии на миллионах
+        // записей — счётчик или слабо засеянный RNG прошли бы его. Та же
+        // оговорка, что у `nonce_differs_between_calls` в `aead.rs`.
         let recipient = UserKeyPair::generate().unwrap();
         let vk = VaultKey::generate().unwrap();
         let a = seal_vault_key_for(recipient.public_bytes(), &vk).unwrap();
@@ -490,8 +557,8 @@ mod tests {
         assert_ne!(
             &a[..EPHEMERAL_PUBLIC_LEN],
             &b[..EPHEMERAL_PUBLIC_LEN],
-            "переиспользованный эфемерный ключ повторяет и nonce-независимый \
-             ключ шифрования: две записи под одним ключом"
+            "эфемерный ключ переиспользован: записи связываются между собой, \
+             а формат теряет запас прочности"
         );
     }
 
@@ -553,10 +620,39 @@ mod tests {
     /// вырожденный (нулевой) общий секрет для любого приватного ключа.
     const DEGENERATE_PUBLIC: [u8; 32] = [0u8; 32];
 
+    /// u = 1. Тоже точка малого порядка (порядок 4): после клэмпинга скаляр
+    /// кратен 8, поэтому умножение даёт нейтральный элемент, то есть нули.
+    const LOW_ORDER_U1: [u8; 32] = {
+        let mut u = [0u8; 32];
+        u[0] = 1;
+        u
+    };
+
+    /// u = p − 1 = 2^255 − 20. Точка порядка 2; нули по той же причине.
+    /// Литерал, а не вычисление: в этих 32 байтах и состоит весь тест-вектор.
+    const LOW_ORDER_P_MINUS_1: [u8; 32] = [
+        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ];
+
     #[test]
     fn a_degenerate_ephemeral_key_cannot_be_replayed_to_another_recipient() {
         use x25519_dalek::{PublicKey, StaticSecret};
 
+        // Что этот тест закрепляет и чего он не утверждает.
+        //
+        // Он НЕ описывает сильную угрозу: чтобы такая запись появилась, её
+        // должен собрать вручную тот, кто её и шифрует, — а он и так знает VK.
+        // Настоящее обоснование получателя в соли другое: это HPKE-style
+        // привязка к контексту и запас на будущее. Формат с несколькими
+        // получателями на один эфемерный ключ держался бы на ней целиком, а
+        // зеркальный, реально опасный случай (вырожденный ключ *получателя*)
+        // разобран в доке `shared_key` и закрыт `DegenerateRecipientKey`.
+        //
+        // Тест при этом логически честен и стоит того, чтобы жить: он —
+        // единственная исполняемая проверка того, что соль действительно
+        // разводит получателей, когда сам DH этого больше не делает.
         let alice = UserKeyPair::generate().unwrap();
         let bob = UserKeyPair::generate().unwrap();
         let vk = VaultKey::generate().unwrap();
@@ -591,6 +687,92 @@ mod tests {
             open_vault_key_for(&bob, &blob).unwrap_err(),
             Error::DecryptionFailed
         );
+    }
+
+    #[test]
+    fn sealing_rejects_a_degenerate_recipient_key() {
+        // Регрессия на утечку, воспроизведённую до этой правки: с вырожденным
+        // `UK_pub` общий секрет — нули, обе половины соли публичны, эфемерный
+        // ключ лежит в самой записи. Все входы HKDF становятся общедоступными,
+        // и VK достаётся из записи кем угодно, пассивно и без секретов — в том
+        // числе из дампа базы или бэкапа много позже.
+        //
+        // Три ключа, а не один: `[0u8; 32]` — это ещё и незаполненная,
+        // дефолтная или обрезанная колонка `UK_pub`, то есть та же полная
+        // утечка вообще без противника. Точки порядка 4 и 2 нулём не выглядят
+        // и проверку «не все байты нулевые» прошли бы насквозь — поэтому здесь
+        // спрашивается `was_contributory`, а не форма байтов.
+        let vk = VaultKey::generate().unwrap();
+        for degenerate in [DEGENERATE_PUBLIC, LOW_ORDER_U1, LOW_ORDER_P_MINUS_1] {
+            assert_eq!(
+                seal_vault_key_for(&degenerate, &vk).unwrap_err(),
+                Error::DegenerateRecipientKey,
+                "точка малого порядка принята как ключ получателя: {}",
+                hex::encode(degenerate)
+            );
+        }
+    }
+
+    #[test]
+    fn low_order_recipient_keys_zero_the_shared_secret() {
+        // Предпосылка теста выше, проверенная отдельно: перечисленные точки
+        // действительно обнуляют DH для *любого* эфемерного секрета, а не
+        // просто «почему-то отклоняются». Без этого первый тест доказывал бы
+        // лишь то, что реализация что-то не любит.
+        use x25519_dalek::{PublicKey, StaticSecret};
+
+        for degenerate in [DEGENERATE_PUBLIC, LOW_ORDER_U1, LOW_ORDER_P_MINUS_1] {
+            for _ in 0..4 {
+                let ephemeral = UserKeyPair::generate().unwrap();
+                let shared = StaticSecret::from(*ephemeral.secret_bytes())
+                    .diffie_hellman(&PublicKey::from(degenerate));
+                assert_eq!(shared.as_bytes(), &[0u8; 32]);
+                assert!(!shared.was_contributory());
+            }
+        }
+    }
+
+    #[test]
+    fn a_healthy_recipient_key_stays_contributory() {
+        // Обратная сторона: проверка не должна отклонять честные ключи.
+        for _ in 0..8 {
+            let recipient = UserKeyPair::generate().unwrap();
+            assert!(
+                seal_vault_key_for(recipient.public_bytes(), &VaultKey::generate().unwrap())
+                    .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn public_key_from_slice_is_the_single_length_check() {
+        let bytes = [0x42u8; 32];
+        assert_eq!(public_key_from_slice(&bytes).unwrap(), bytes);
+        assert_eq!(
+            public_key_from_slice(&[0u8; 31]).unwrap_err(),
+            Error::InvalidKeyLength {
+                got: 31,
+                expected: 32
+            }
+        );
+        assert_eq!(
+            public_key_from_slice(&[]).unwrap_err(),
+            Error::InvalidKeyLength {
+                got: 0,
+                expected: 32
+            }
+        );
+
+        // Путь, которым пойдут биндинги задач 11 и 13: срез с хост-стороны →
+        // эта функция → `&[u8; 32]` обеих функций крейта. Своего `try_into`
+        // они не заводят.
+        let kek = test_kek();
+        let kp = UserKeyPair::generate().unwrap();
+        let wrapped = wrap_user_key(&kek, &kp).unwrap();
+        let from_host: &[u8] = kp.public_bytes();
+        let checked = public_key_from_slice(from_host).unwrap();
+        assert!(unwrap_user_key_verified(&kek, &wrapped, &checked).is_ok());
+        assert!(seal_vault_key_for(&checked, &VaultKey::generate().unwrap()).is_ok());
     }
 
     #[test]
