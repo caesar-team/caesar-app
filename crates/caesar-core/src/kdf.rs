@@ -1,5 +1,6 @@
 use crate::keys::{AuthKey, KeyEncryptionKey, MasterKey};
 use crate::{Error, Result};
+use argon2::Version;
 
 pub const KDF_VERSION: u8 = 1;
 pub const KDF_ALGO_ARGON2ID: u8 = 1;
@@ -13,8 +14,25 @@ pub const KDF_PARAMS_LEN: usize = 2 + 3 * 4 + SALT_LEN;
 const _: () = assert!(KDF_PARAMS_LEN == 2 + 12 + SALT_LEN);
 
 /// Домены HKDF. Изменение любой строки делает существующие данные нечитаемыми.
-const INFO_AUTH: &[u8] = b"caesar/auth/v1";
-const INFO_WRAP: &[u8] = b"caesar/wrap/v1";
+///
+/// `pub` не ради вызывающих, а ради `protocol/vectors.json`: генератор печатает
+/// эти строки в файл векторов как документацию для Swift и TypeScript. Пока они
+/// были литералами в генераторе, значение пинилось косвенно (через известный
+/// ответ), а *подпись* могла разойтись с кодом — и файл вёз бы ложь ровно тем,
+/// кому он адресован.
+pub const INFO_AUTH: &[u8] = b"caesar/auth/v1";
+pub const INFO_WRAP: &[u8] = b"caesar/wrap/v1";
+
+/// Длина всего производного ключевого материала: выхода Argon2id и каждого
+/// выхода HKDF. Один источник правды — иначе «32» живёт в четырёх местах.
+pub const DERIVED_KEY_LEN: usize = 32;
+
+/// Версия Argon2, попадающая в каждый выведенный ключ. `0x13` — это 19,
+/// «Argon2 version 1.3»; версия 0x10 при тех же параметрах даёт другой ключ.
+/// Константа выводится из самого значения, переданного в `Argon2::new`, а не
+/// написана числом рядом с ним.
+const ARGON2_VERSION: Version = Version::V0x13;
+pub const ARGON2_VERSION_NUMBER: u32 = ARGON2_VERSION as u32;
 
 /// Пол параметров Argon2id, вкомпилированный в клиента.
 ///
@@ -135,6 +153,21 @@ impl KdfParams {
 /// Отказывается работать на параметрах вне диапазона: см. `MIN_M_COST`
 /// и `MAX_M_COST`.
 ///
+/// # Нормализация — обязанность ядра, а не вызывающего
+///
+/// Пароль приводится к NFC **здесь**, первым же шагом. `String` в Swift и
+/// строка в JS хранят «é» и как U+00E9, и как U+0065 U+0301: пользователь
+/// набирает один и тот же пароль, байты приходят разные, мастер-ключ выходит
+/// разный — и хранилище, созданное на одной платформе, не открывается на
+/// другой. Ошибка при этом не диагностируется ничем: клиент видит обычный
+/// «неверный пароль», а CI зелёный, потому что каждая платформа согласована
+/// сама с собой.
+///
+/// Нормализовать обязано ядро, а не четыре клиента: смысл этого крейта в том,
+/// что расходиться им негде. **Вызывающие не должны нормализовать пароль сами** —
+/// NFC идемпотентен, так что вреда не будет, но и пользы тоже, а забытая
+/// нормализация у одного клиента вернула бы ровно ту поломку.
+///
 /// # Обязанность вызывающего
 ///
 /// Пароль принимается как `&str` осознанно: строку JS или Swift всё равно
@@ -145,35 +178,52 @@ impl KdfParams {
 /// вызова. Всё, что гарантирует ядро, — пароль не копируется наружу и не
 /// попадает ни в одну ошибку.
 pub fn derive_master_key(password: &str, params: &KdfParams) -> Result<MasterKey> {
-    use argon2::{Algorithm, Argon2, Params, Version};
+    use argon2::{Algorithm, Argon2, Params};
+    use unicode_normalization::UnicodeNormalization;
     use zeroize::Zeroizing;
 
     params.validate()?;
+
+    // `Zeroizing`, а не голая `String`: нормализация — это вторая копия пароля
+    // в куче, и оставлять её там было бы хуже, чем не нормализовать вовсе.
+    // Копия делается всегда, в том числе когда вход уже в NFC: ветка «уже
+    // нормализован» экономила бы одну аллокацию на вход пароля и добавляла
+    // путь, который на ASCII-пароле никогда не исполняется, — а именно ASCII
+    // и покрыт известным ответом.
+    let normalized = Zeroizing::new(password.nfc().collect::<String>());
 
     // Ошибки argon2 не редактируются: они описывают только публичные
     // параметры с сервера — ни пароля, ни ключа, ни расшифрованного текста
     // в них нет. Редактирование сделало бы враждебный `m_cost` неотличимым
     // от любой другой поломки в поле.
-    let argon_params = Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32))
-        .map_err(|e| Error::KeyDerivation(e.to_string()))?;
-    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
+    let argon_params = Params::new(
+        params.m_cost,
+        params.t_cost,
+        params.p_cost,
+        Some(DERIVED_KEY_LEN),
+    )
+    .map_err(|e| Error::KeyDerivation(e.to_string()))?;
+    let argon = Argon2::new(Algorithm::Argon2id, ARGON2_VERSION, argon_params);
 
     // `[u8; 32]` — `Copy`: обычный локальный массив остался бы на стеке после
     // возврата, и `ZeroizeOnDrop` на `MasterKey` затирал бы только копию.
-    let mut out = Zeroizing::new([0u8; 32]);
+    let mut out = Zeroizing::new([0u8; DERIVED_KEY_LEN]);
     argon
-        .hash_password_into(password.as_bytes(), &params.salt, out.as_mut_slice())
+        .hash_password_into(normalized.as_bytes(), &params.salt, out.as_mut_slice())
         .map_err(|e| Error::KeyDerivation(e.to_string()))?;
     Ok(MasterKey::from_bytes(*out))
 }
 
-fn expand(master: &MasterKey, info: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
+/// HKDF-SHA256 без соли (RFC 5869: это `HashLen` нулевых байт), IKM —
+/// мастер-ключ, выход — [`DERIVED_KEY_LEN`] байт. Разделяет домены только
+/// `info`; раскладка закреплена в `constants` файла векторов.
+fn expand(master: &MasterKey, info: &[u8]) -> zeroize::Zeroizing<[u8; DERIVED_KEY_LEN]> {
     use hkdf::Hkdf;
     use sha2::Sha256;
     use zeroize::Zeroizing;
 
     let hk = Hkdf::<Sha256>::new(None, master.as_bytes());
-    let mut out = Zeroizing::new([0u8; 32]);
+    let mut out = Zeroizing::new([0u8; DERIVED_KEY_LEN]);
     hk.expand(info, out.as_mut_slice())
         .expect("32 bytes is a valid HKDF output length");
     out
@@ -295,6 +345,24 @@ mod tests {
     }
 
     #[test]
+    fn nfc_and_nfd_spellings_of_a_password_agree() {
+        // Один и тот же пароль с точки зрения пользователя, разные байты:
+        // «é» как U+00E9 и как U+0065 U+0301. Swift и JS отдают то и другое в
+        // зависимости от того, откуда строка приехала (клавиатура, буфер
+        // обмена, файловая система macOS), поэтому без нормализации хранилище
+        // просто не открылось бы на второй платформе — без единого признака
+        // поломки, кроме «неверный пароль».
+        let nfc = "caf\u{00E9} au lait";
+        let nfd = "cafe\u{0301} au lait";
+        assert_ne!(nfc.as_bytes(), nfd.as_bytes(), "test premise: bytes differ");
+
+        let p = fixed_params();
+        let a = derive_master_key(nfc, &p).unwrap();
+        let b = derive_master_key(nfd, &p).unwrap();
+        assert_eq!(a.as_bytes(), b.as_bytes());
+    }
+
+    #[test]
     fn different_salt_gives_different_key() {
         let mut p2 = fixed_params();
         p2.salt = [0x5B; SALT_LEN];
@@ -319,6 +387,11 @@ mod tests {
         // сдвиг любого из них молча меняет то, какие параметры клиент примет.
         assert_eq!(INFO_AUTH, b"caesar/auth/v1");
         assert_eq!(INFO_WRAP, b"caesar/wrap/v1");
+
+        // Версия Argon2 и длина выхода попадают в ключ ровно так же, как соль:
+        // 0x10 вместо 0x13 или 64 байта вместо 32 дают другой мастер-ключ.
+        assert_eq!(ARGON2_VERSION_NUMBER, 0x13);
+        assert_eq!(DERIVED_KEY_LEN, 32);
 
         assert_eq!(MIN_M_COST, 19 * 1024);
         assert_eq!(MIN_T_COST, 2);
