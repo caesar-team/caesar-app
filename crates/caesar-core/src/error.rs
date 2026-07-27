@@ -37,6 +37,15 @@ pub enum Error {
     #[error("invalid emergency kit: {0}")]
     InvalidEmergencyKit(String),
 
+    /// Набор разобран целиком, но его контрольная сумма не сошлась с ключом.
+    /// Отдельный вариант, а не текст внутри `InvalidEmergencyKit`: биндингам
+    /// нужно развести два синтаксически неотличимых случая — «вы опечатались»
+    /// (сюда) и «ключ верный, но не от этого хранилища» (`DecryptionFailed`
+    /// позже, от тега Poly1305). Без этого различия единственный путь обратно
+    /// в аккаунт заканчивается одинаково глухим отказом в обоих случаях.
+    #[error("emergency kit checksum does not match: a symbol was mistyped")]
+    EmergencyKitChecksumMismatch,
+
     #[error("no secure random source available")]
     RandomSourceUnavailable,
 

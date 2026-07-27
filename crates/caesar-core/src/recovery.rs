@@ -1,5 +1,6 @@
 use crate::keys::RecoveryKey;
 use crate::{Error, Result};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 /// Алфавит Crockford Base32: без I, L, O, U — их путают при чтении с бумаги.
@@ -14,6 +15,15 @@ const GROUP: usize = 7;
 /// Длина напечатанного набора вместе с дефисами.
 const PRINTED_LEN: usize = KIT_SYMBOLS + KIT_SYMBOLS / GROUP - 1;
 
+/// Байт ключа восстановления.
+const KEY_BYTES: usize = 32;
+
+/// Байт контрольной суммы: первые три байта SHA-256 от ключа.
+const CHECKSUM_BYTES: usize = 3;
+
+/// Что именно кодируют символы набора: ключ, следом контрольная сумма.
+const KIT_BYTES: usize = KEY_BYTES + CHECKSUM_BYTES;
+
 /// Форматирует ключ восстановления для печати: 8 групп по 7 символов.
 ///
 /// Возвращает `Zeroizing<String>`, а не `String`: напечатанный набор — это тот
@@ -21,17 +31,28 @@ const PRINTED_LEN: usize = KIT_SYMBOLS + KIT_SYMBOLS / GROUP - 1;
 /// Освободить его нетронутым — то же самое, что оставить в куче сам ключ.
 /// Та же причина, по которой `aead::open` отдаёт `Zeroizing<Vec<u8>>`.
 pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
-    // 32 байта = 256 бит. При 5 битах на символ это 51 полная группа и один
-    // остаточный бит: он занимает старший бит 52-го символа, младшие четыре
-    // добиваются нулями. Символы с 53-го по 56-й ключа не несут вообще — они
-    // держат печатную раскладку прямоугольной. Отсюда же начальное заполнение
-    // нулевым символом алфавита: добивка не пишется отдельным проходом.
+    // 56 символов по 5 бит — это 280 бит, ключ занимает 256. Оставшиеся 24
+    // несут контрольную сумму ключа, а не добивку: без неё опечатка в любом из
+    // 51 несущего символа разбиралась бы как `Ok` с неверным ключом, и ошибка
+    // всплывала бы позже тегом Poly1305 — неотличимо от испорченного конверта
+    // или вообще чужой учётной записи. На единственном пути обратно в аккаунт
+    // это разница между «проверьте набор» и глухим отказом расшифровки.
+    //
+    // Решение постоянное: набор печатают на бумагу, и с того момента смена
+    // смысла этих 24 бит означала бы поддержку обеих кодировок навсегда.
+    //
+    // Ключ и сумма вместе дают 35 байт = ровно 280 бит, поэтому добивки в
+    // потоке больше нет ни одного бита и каждый символ набора несущий.
+    let mut payload = Zeroizing::new([0u8; KIT_BYTES]);
+    payload[..KEY_BYTES].copy_from_slice(key.as_bytes());
+    payload[KEY_BYTES..].copy_from_slice(&key_checksum(key.as_bytes()));
+
     let mut symbols = Zeroizing::new([ALPHABET[0]; KIT_SYMBOLS]);
     let mut acc: u32 = 0;
     let mut bits = 0u8;
     let mut next = 0usize;
 
-    for &byte in key.as_bytes() {
+    for &byte in payload.iter() {
         // Живыми в `acc` остаются младшие `bits` бит; всё, что выше, осталось
         // от прошлых итераций и отсекается маской `0x1f` при чтении.
         acc = (acc << 8) | u32::from(byte);
@@ -41,9 +62,6 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
             symbols[next] = ALPHABET[((acc >> bits) & 0x1f) as usize];
             next += 1;
         }
-    }
-    if bits > 0 {
-        symbols[next] = ALPHABET[((acc << (5 - bits)) & 0x1f) as usize];
     }
 
     // Ёмкость точная, поэтому `push` ни разу не перевыделяет буфер и не
@@ -62,8 +80,11 @@ pub fn format_emergency_kit(key: &RecoveryKey) -> Zeroizing<String> {
 
 /// Разбирает напечатанный Emergency Kit. Дефисы, пробелы и регистр игнорируются.
 ///
-/// Ошибка — только `InvalidEmergencyKit`: у длины и у алфавита здесь по одной
-/// точке проверки, и обе ниже.
+/// Три причины отказа, и все три различимы вызывающим кодом: длина и алфавит
+/// приходят как `InvalidEmergencyKit` с разным текстом, а несошедшаяся
+/// контрольная сумма — отдельным вариантом `EmergencyKitChecksumMismatch`.
+/// Последнее нужно биндингам, чтобы отличить «вы опечатались» от «этот ключ
+/// не от этого хранилища»: набор синтаксически безупречен в обоих случаях.
 pub fn parse_emergency_kit(input: &str) -> Result<RecoveryKey> {
     // Байты, а не символы: любой не-ASCII разворачивается в байты `>= 0x80`,
     // которых нет ни в алфавите, ни среди подстановок, поэтому пройти дальше
@@ -83,7 +104,7 @@ pub fn parse_emergency_kit(input: &str) -> Result<RecoveryKey> {
         )));
     }
 
-    let mut key = Zeroizing::new([0u8; 32]);
+    let mut payload = Zeroizing::new([0u8; KIT_BYTES]);
     let mut acc: u32 = 0;
     let mut bits = 0u8;
     let mut next = 0usize;
@@ -93,23 +114,37 @@ pub fn parse_emergency_kit(input: &str) -> Result<RecoveryKey> {
         bits += 5;
         if bits >= 8 {
             bits -= 8;
-            // 56 символов несут 280 бит, ключ — 256. Последние три байта
-            // потока целиком лежат в добивке, и класть их некуда.
-            //
-            // Из этого следует терпимость к опечаткам в хвосте: младшие четыре
-            // бита 52-го символа и все четыре последних символа в ключ не
-            // попадают, поэтому наборы, отличающиеся только там, дают один и
-            // тот же RK. Это осознанно — отвергать их значило бы разворачивать
-            // человека с верной распечаткой из-за позиции, которая ничего не
-            // значит.
-            if next < key.len() {
-                key[next] = (acc >> bits) as u8;
+            if next < payload.len() {
+                payload[next] = (acc >> bits) as u8;
                 next += 1;
             }
         }
     }
 
+    let mut key = Zeroizing::new([0u8; KEY_BYTES]);
+    key.copy_from_slice(&payload[..KEY_BYTES]);
+
+    // Сумма считается от разобранного ключа и сверяется с напечатанной. Любая
+    // опечатка в несущих символах меняет ключ, а с ним и сумму; опечатка в
+    // хвосте меняет саму напечатанную сумму. Мимо проходит только совпадение
+    // 24 бит — примерно один случай на 16.7 млн.
+    let expected = key_checksum(&key);
+    if payload[KEY_BYTES..] != expected[..] {
+        return Err(Error::EmergencyKitChecksumMismatch);
+    }
+
     Ok(RecoveryKey::from_bytes(*key))
+}
+
+/// Первые три байта SHA-256 от ключа — те самые 24 бита в хвосте набора.
+///
+/// Дайджест целиком не секрет: он однонаправлен, а его начало и так уходит на
+/// бумагу, поэтому затирать его отдельно смысла нет.
+fn key_checksum(key: &[u8; KEY_BYTES]) -> [u8; CHECKSUM_BYTES] {
+    let digest = Sha256::digest(key);
+    let mut checksum = [0u8; CHECKSUM_BYTES];
+    checksum.copy_from_slice(&digest[..CHECKSUM_BYTES]);
+    checksum
 }
 
 /// Переводит символ набора в его пятибитное значение. Вход уже приведён к
@@ -122,9 +157,9 @@ pub fn parse_emergency_kit(input: &str) -> Result<RecoveryKey> {
 /// верную распечатку, — а это последнее, что стоит между ним и потерянным
 /// навсегда хранилищем. Риска подстановка не добавляет: она детерминирована и
 /// не может превратить один валидный набор в другой валидный, а если человек и
-/// правда ввёл не ту букву, RK выйдет неверным и это поймает тег Poly1305 при
-/// развёртывании. `U` не подставляется: Crockford исключил её из алфавита
-/// намеренно и замены ей не задал.
+/// правда ввёл не ту букву, это поймает контрольная сумма. `U` не
+/// подставляется: Crockford исключил её из алфавита намеренно и замены ей не
+/// задал.
 fn symbol_value(symbol: u8) -> Result<u8> {
     let symbol = match symbol {
         b'I' | b'L' => b'1',
@@ -173,6 +208,23 @@ mod tests {
         *parse_emergency_kit(&printed).unwrap().as_bytes()
     }
 
+    /// `RecoveryKey` намеренно не сравнивается на равенство, поэтому
+    /// `assert_eq!` по `Result` тут невозможен — вариант ошибки сверяется так.
+    fn checksum_rejected(input: &str) -> bool {
+        matches!(
+            parse_emergency_kit(input),
+            Err(Error::EmergencyKitChecksumMismatch)
+        )
+    }
+
+    fn sequential_key() -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = index as u8;
+        }
+        bytes
+    }
+
     #[test]
     fn round_trip_is_total_over_random_keys() {
         // Единственное свойство, ради которого существует модуль. Если формат и
@@ -200,26 +252,25 @@ mod tests {
     #[test]
     fn printed_kit_matches_pinned_literals() {
         // Набор печатается на бумагу и живёт дольше любой версии клиента.
-        // Литералы, а не пересчёт по тем же константам: вычисленное «ожидание»
-        // поедет вместе с реализацией и ничего не поймает.
+        // Литералы закреплены намеренно: пересчёт по тем же константам поехал
+        // бы вместе с реализацией и не поймал бы ничего — а поймать надо ровно
+        // одно, любое изменение раскладки бит. У человека с распечаткой нет
+        // способа обновить её под новый кодек.
+        //
+        // Хвост каждого набора — контрольная сумма, первые 24 бита SHA-256 от
+        // ключа: `66 68 7a` для нулевого, `af 96 13` для `0xFF`, `63 0d cd`
+        // для последовательного.
         assert_eq!(
             &*format_emergency_kit(&RecoveryKey::from_bytes([0x00; 32])),
-            "0000000-0000000-0000000-0000000-0000000-0000000-0000000-0000000"
+            "0000000-0000000-0000000-0000000-0000000-0000000-0000000-006CT3T"
         );
-        // Хвост `ZZG0000` — это тот самый 52-й символ: единственный остаточный
-        // бит ключа стоит в его старшем разряде, дальше идёт добивка.
         assert_eq!(
             &*format_emergency_kit(&RecoveryKey::from_bytes([0xFF; 32])),
-            "ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZG0000"
+            "ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZZZZZZ-ZZTZ5GK"
         );
-
-        let mut sequential = [0u8; 32];
-        for (index, byte) in sequential.iter_mut().enumerate() {
-            *byte = index as u8;
-        }
         assert_eq!(
-            &*format_emergency_kit(&RecoveryKey::from_bytes(sequential)),
-            "000G40R-40M30E2-09185GR-38E1W81-24GK2GA-HC5RR34-D1P70X3-RFG0000"
+            &*format_emergency_kit(&RecoveryKey::from_bytes(sequential_key())),
+            "000G40R-40M30E2-09185GR-38E1W81-24GK2GA-HC5RR34-D1P70X3-RFP63ED"
         );
     }
 
@@ -236,6 +287,49 @@ mod tests {
     }
 
     #[test]
+    fn every_single_symbol_typo_is_detected() {
+        // До контрольной суммы опечатка в любом из 51 несущего символа давала
+        // `Ok` с неверным ключом, а в четырёх последних — `Ok` с верным:
+        // хвост был добивкой и в ключ не попадал. Теперь несущи все 56, и
+        // проверяются здесь тоже все — и «рабочая» область, и бывшая добивка
+        // (позиции 52..56, то есть группа 8).
+        for bytes in [[0x00; 32], [0xFF; 32], sequential_key(), [0x5A; 32]] {
+            let printed = format_emergency_kit(&RecoveryKey::from_bytes(bytes));
+            let symbols: Vec<u8> = printed.bytes().filter(|b| *b != b'-').collect();
+            assert_eq!(symbols.len(), KIT_SYMBOLS);
+
+            for position in 0..KIT_SYMBOLS {
+                for &replacement in ALPHABET.iter() {
+                    if replacement == symbols[position] {
+                        continue;
+                    }
+                    let mut typo = symbols.clone();
+                    typo[position] = replacement;
+                    let typo = String::from_utf8(typo).unwrap();
+
+                    assert!(
+                        checksum_rejected(&typo),
+                        "position {position} typed as '{}' went undetected",
+                        char::from(replacement)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn checksum_rejection_is_distinct_from_a_malformed_kit() {
+        // Биндингам нужно развести два случая, синтаксически неотличимых:
+        // «вы опечатались» и «этот ключ не от этого хранилища». Второй сюда не
+        // доходит вовсе — он всплывает тегом Poly1305 при развёртывании.
+        let printed = format_emergency_kit(&RecoveryKey::from_bytes([0x11; 32]));
+        let mut symbols = printed.replace('-', "");
+        symbols.replace_range(0..1, "Z");
+
+        assert!(checksum_rejected(&symbols));
+    }
+
+    #[test]
     fn parsing_tolerates_human_formatting() {
         let bytes = [0x3C; 32];
         let printed = format_emergency_kit(&RecoveryKey::from_bytes(bytes));
@@ -247,31 +341,24 @@ mod tests {
     #[test]
     fn parsing_substitutes_crockford_lookalikes() {
         // Тот случай, ради которого подстановка и заведена: человек переписал с
-        // бумаги единицы как I и l, а ноль — как O.
-        let bytes = [0u8; 32];
+        // бумаги единицы как I и l, а нули — как O. Набор при этом верный, и
+        // после подстановки обязан дать исходный ключ вместе с суммой.
+        let bytes = sequential_key();
         let printed = format_emergency_kit(&RecoveryKey::from_bytes(bytes));
-        assert_eq!(
-            parse_emergency_kit(&printed.replace('0', "O"))
-                .unwrap()
-                .as_bytes(),
-            &bytes
+        assert!(
+            printed.contains('0') && printed.contains('1'),
+            "the fixture must exercise both substitutions: {}",
+            &*printed
         );
 
-        let ones = "1".repeat(KIT_SYMBOLS);
-        let expected = *parse_emergency_kit(&ones).unwrap().as_bytes();
-        for lookalike in ["I", "i", "L", "l"] {
+        for (one, zero) in [("I", "O"), ("i", "o"), ("L", "O"), ("l", "o")] {
+            let retyped = printed.replace('1', one).replace('0', zero);
             assert_eq!(
-                parse_emergency_kit(&lookalike.repeat(KIT_SYMBOLS))
-                    .unwrap()
-                    .as_bytes(),
-                &expected,
-                "lookalike {lookalike}"
+                parse_emergency_kit(&retyped).unwrap().as_bytes(),
+                &bytes,
+                "lookalikes {one}/{zero}"
             );
         }
-        // Подстановка не делает алфавит шире: она отображает в него, а не
-        // добавляет значения. Набор из единиц обязан отличаться от набора нулей,
-        // иначе «толерантность» означала бы, что символы вообще не читаются.
-        assert_ne!(expected, [0u8; 32]);
     }
 
     /// Обе точки проверки возвращают один и тот же вариант ошибки, поэтому
