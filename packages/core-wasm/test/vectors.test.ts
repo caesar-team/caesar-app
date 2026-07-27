@@ -1,3 +1,4 @@
+import { describe, expect, test } from "bun:test";
 /**
  * Ворота CI №1 для WASM: расхождение с Rust ломает билд.
  *
@@ -21,7 +22,6 @@
  * паддинга — всё, кроме выбора nonce, который в этом направлении задан входом.
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "bun:test";
 import * as core from "../pkg/caesar_core_wasm.js";
 
 const VECTORS_PATH = new URL("../../../protocol/vectors.json", import.meta.url);
@@ -31,9 +31,7 @@ interface JsonObject {
   [key: string]: JsonValue;
 }
 
-const vectors: JsonObject = JSON.parse(
-  readFileSync(VECTORS_PATH, "utf8"),
-) as JsonObject;
+const vectors: JsonObject = JSON.parse(readFileSync(VECTORS_PATH, "utf8")) as JsonObject;
 
 /** Argon2id на продакшн-параметрах в WASM — это секунды, а не миллисекунды. */
 const KDF_TIMEOUT_MS = 120_000;
@@ -165,9 +163,7 @@ describe("envelope layout", () => {
     expect(hex(header)).toBe(text(layout, "header"));
     expect(num(layout, "headerOffset")).toBe(0);
     expect(num(layout, "nonceOffset")).toBe(constants.headerLen);
-    expect(num(layout, "ciphertextOffset")).toBe(
-      constants.headerLen + constants.nonceLen,
-    );
+    expect(num(layout, "ciphertextOffset")).toBe(constants.headerLen + constants.nonceLen);
 
     // AAD — нормативное поле: реализация, передавшая в AEAD пустой AAD, получит
     // другой тег при всём остальном верном, и разойдётся с векторами только
@@ -189,11 +185,9 @@ describe("key derivation", () => {
 
       expect(hex(mk)).toBe(text(entry, "masterKey"));
       expect(hex(core.authKey(mk))).toBe(text(entry, "authKey"));
-      expect(hex(core.keyEncryptionKey(mk))).toBe(
-        text(entry, "keyEncryptionKey"),
-      );
+      expect(hex(core.keyEncryptionKey(mk))).toBe(text(entry, "keyEncryptionKey"));
     },
-    KDF_TIMEOUT_MS,
+    KDF_TIMEOUT_MS
   );
 
   test(
@@ -211,9 +205,7 @@ describe("key derivation", () => {
           reencoded: Uint8Array;
         };
 
-        expect(`${name}.mCost=${params.mCost}`).toBe(
-          `${name}.mCost=${num(entry, "mCost")}`,
-        );
+        expect(`${name}.mCost=${params.mCost}`).toBe(`${name}.mCost=${num(entry, "mCost")}`);
         expect(params.tCost).toBe(num(entry, "tCost"));
         expect(params.pCost).toBe(num(entry, "pCost"));
         expect(hex(params.salt)).toBe(text(entry, "salt"));
@@ -232,7 +224,7 @@ describe("key derivation", () => {
           derived += 1;
         } else if (safe === false) {
           expect(`${name} pins a master key: ${"masterKey" in entry}`).toBe(
-            `${name} pins a master key: false`,
+            `${name} pins a master key: false`
           );
         } else {
           throw new Error(`case ${name} has no deriveSafe flag`);
@@ -242,7 +234,7 @@ describe("key derivation", () => {
       // зашитых умолчаний.
       expect(derived).toBeGreaterThan(1);
     },
-    KDF_TIMEOUT_MS,
+    KDF_TIMEOUT_MS
   );
 
   test(
@@ -262,19 +254,15 @@ describe("key derivation", () => {
         // Сначала — что в файле лежит именно то, что заявлено: редактор или
         // git-фильтр, нормализовавший файл сам, обесценил бы весь случай.
         const password = text(entry, form);
-        expect(`${form}: ${hex(utf8.encode(password))}`).toBe(
-          `${form}: ${text(entry, utf8Field)}`,
-        );
+        expect(`${form}: ${hex(utf8.encode(password))}`).toBe(`${form}: ${text(entry, utf8Field)}`);
 
         const mk = core.deriveMasterKey(password, params);
         expect(`${form}: ${hex(mk)}`).toBe(`${form}: ${text(entry, "masterKey")}`);
       }
 
-      expect(text(entry, "passwordNfcUtf8")).not.toBe(
-        text(entry, "passwordNfdUtf8"),
-      );
+      expect(text(entry, "passwordNfcUtf8")).not.toBe(text(entry, "passwordNfdUtf8"));
     },
-    KDF_TIMEOUT_MS,
+    KDF_TIMEOUT_MS
   );
 
   test("out-of-range and malformed parameters are rejected", () => {
@@ -294,21 +282,19 @@ describe("envelopes", () => {
       const envelope = bytes(entry, "envelope");
 
       expect(`${name}.length=${envelope.length}`).toBe(
-        `${name}.length=${num(entry, "envelopeLength")}`,
+        `${name}.length=${num(entry, "envelopeLength")}`
       );
       expect(hex(envelope.subarray(0, 2))).toBe(hex(header));
       expect(hex(envelope.subarray(2, 26))).toBe(text(entry, "nonce"));
       expect(`${name}: ${hex(core.open(bytes(entry, "key"), envelope))}`).toBe(
-        `${name}: ${text(entry, "plaintext")}`,
+        `${name}: ${text(entry, "plaintext")}`
       );
     }
   });
 
   test("every invalid envelope is rejected with its pinned error", () => {
     for (const entry of cases("envelope", "invalid")) {
-      expectRejected(entry, () =>
-        core.open(bytes(entry, "key"), bytes(entry, "envelope")),
-      );
+      expectRejected(entry, () => core.open(bytes(entry, "key"), bytes(entry, "envelope")));
     }
   });
 
@@ -330,20 +316,14 @@ describe("key wrapping", () => {
     const entry = section("keyWrapping", "userKey");
     const kek = bytes(kw, "keyEncryptionKey");
 
-    const pair = core.unwrapUserKeyVerified(
-      kek,
-      bytes(entry, "wrapped"),
-      bytes(entry, "public"),
-    );
+    const pair = core.unwrapUserKeyVerified(kek, bytes(entry, "wrapped"), bytes(entry, "public"));
     expect(hex(pair.publicBytes())).toBe(text(entry, "public"));
 
     // Приватная половина через границу не выведена, но обёртка — обычный
     // конверт над ней, и в этом направлении её видно. Проверка не декоративная:
     // реализация, завернувшая ключ с другим AAD или в другом порядке полей,
     // расходится именно здесь.
-    expect(hex(core.open(kek, bytes(entry, "wrapped")))).toBe(
-      text(entry, "secret"),
-    );
+    expect(hex(core.open(kek, bytes(entry, "wrapped")))).toBe(text(entry, "secret"));
   });
 
   test("the wrapped vault key unwraps to its pinned plaintext", () => {
@@ -351,12 +331,8 @@ describe("key wrapping", () => {
     const entry = section("keyWrapping", "vaultKey");
     const kek = bytes(kw, "keyEncryptionKey");
 
-    expect(hex(core.unwrapVaultKey(kek, bytes(entry, "wrapped")))).toBe(
-      text(entry, "plaintext"),
-    );
-    expect(hex(core.open(kek, bytes(entry, "wrapped")))).toBe(
-      text(entry, "plaintext"),
-    );
+    expect(hex(core.unwrapVaultKey(kek, bytes(entry, "wrapped")))).toBe(text(entry, "plaintext"));
+    expect(hex(core.open(kek, bytes(entry, "wrapped")))).toBe(text(entry, "plaintext"));
   });
 
   test("invalid wrappings are rejected with their pinned errors", () => {
@@ -368,7 +344,7 @@ describe("key wrapping", () => {
       expectRejected(entry, () =>
         "expectedPublic" in entry
           ? core.unwrapUserKeyVerified(kek, wrapped, bytes(entry, "expectedPublic"))
-          : core.unwrapVaultKey(kek, wrapped),
+          : core.unwrapVaultKey(kek, wrapped)
       );
     }
   });
@@ -379,7 +355,7 @@ describe("key wrapping", () => {
     const restored = core.unwrapUserKeyVerified(
       kek,
       core.wrapUserKey(kek, pair),
-      pair.publicBytes(),
+      pair.publicBytes()
     );
     expect(hex(restored.publicBytes())).toBe(hex(pair.publicBytes()));
   });
@@ -403,7 +379,7 @@ function bridgedRecipient(): { pair: core.UserKeyPair; secret: string } {
     pair: core.unwrapUserKeyVerified(
       bytes(kw, "keyEncryptionKey"),
       bytes(entry, "wrapped"),
-      bytes(entry, "public"),
+      bytes(entry, "public")
     ),
     secret: text(entry, "secret"),
   };
@@ -439,18 +415,14 @@ describe("x25519 vault sharing", () => {
     const sealed = bytes(entry, "sealed");
     const ephemeralLen = num(entry, "ephemeralPublicLen");
 
-    expect(hex(sealed.subarray(0, ephemeralLen))).toBe(
-      text(entry, "ephemeralPublic"),
-    );
+    expect(hex(sealed.subarray(0, ephemeralLen))).toBe(text(entry, "ephemeralPublic"));
     expect(hex(core.openVaultKeyFor(pair, sealed))).toBe(text(entry, "vaultKey"));
   });
 
   test("degenerate recipient keys are rejected", () => {
     const vaultKey = new Uint8Array(32).fill(0x07);
     for (const entry of cases("x25519", "invalidRecipients")) {
-      expectRejected(entry, () =>
-        core.sealVaultKeyFor(bytes(entry, "recipientPublic"), vaultKey),
-      );
+      expectRejected(entry, () => core.sealVaultKeyFor(bytes(entry, "recipientPublic"), vaultKey));
     }
   });
 
@@ -493,7 +465,7 @@ describe("emergency kit", () => {
     expect([...alphabet].length).toBe(32);
     for (const excluded of ["I", "L", "O", "U"]) {
       expect(`${excluded} in alphabet: ${alphabet.includes(excluded)}`).toBe(
-        `${excluded} in alphabet: false`,
+        `${excluded} in alphabet: false`
       );
     }
     expect(groups * groupSize).toBe(symbols);
@@ -504,7 +476,7 @@ describe("emergency kit", () => {
     expect([...printed].length).toBe(symbols + groups - 1);
     for (const symbol of body) {
       expect(`${symbol} in alphabet: ${alphabet.includes(symbol)}`).toBe(
-        `${symbol} in alphabet: true`,
+        `${symbol} in alphabet: true`
       );
     }
 
@@ -512,14 +484,14 @@ describe("emergency kit", () => {
     // где каждая цифра заменена на свою букву, обязан разобраться в тот же ключ.
     const expected = hex(core.parseEmergencyKit(printed));
     for (const [letter, digit] of Object.entries(
-      section("emergencyKit", "layout", "substitutions"),
+      section("emergencyKit", "layout", "substitutions")
     )) {
       if (typeof digit !== "string") {
         throw new Error(`substitution ${letter} is not a string`);
       }
       const substituted = printed.replaceAll(digit, letter);
       expect(`${letter}->${digit}: ${hex(core.parseEmergencyKit(substituted))}`).toBe(
-        `${letter}->${digit}: ${expected}`,
+        `${letter}->${digit}: ${expected}`
       );
     }
   });
@@ -564,7 +536,7 @@ describe("items", () => {
       const envelope = bytes(entry, "envelope");
 
       expect(`${name}: ${core.openItem(envelope, vaultKey)}`).toBe(
-        `${name}: ${text(entry, "plaintextJson")}`,
+        `${name}: ${text(entry, "plaintextJson")}`
       );
 
       // Раскладка паддинга: `declaredLength(u32 LE) || json || zeros`.
@@ -575,14 +547,13 @@ describe("items", () => {
       expect(padded.length).toBe(num(entry, "paddedLength"));
       expect(envelope.length).toBe(num(entry, "envelopeLength"));
 
-      const declared = new DataView(
-        padded.buffer,
-        padded.byteOffset,
-        padded.byteLength,
-      ).getUint32(0, true);
+      const declared = new DataView(padded.buffer, padded.byteOffset, padded.byteLength).getUint32(
+        0,
+        true
+      );
       expect(declared).toBe(num(entry, "jsonLength"));
       expect(hex(padded.subarray(4, 4 + declared))).toBe(
-        hex(utf8.encode(text(entry, "plaintextJson"))),
+        hex(utf8.encode(text(entry, "plaintextJson")))
       );
       for (const tail of padded.subarray(4 + declared)) {
         expect(`${name} padding tail: ${tail}`).toBe(`${name} padding tail: 0`);
@@ -607,10 +578,10 @@ describe("items", () => {
         title: "x".repeat(num(entry, "titleFiller")),
       });
       expect(`${name} json: ${utf8.encode(json).length}`).toBe(
-        `${name} json: ${num(entry, "jsonLength")}`,
+        `${name} json: ${num(entry, "jsonLength")}`
       );
       expect(`${name} envelope: ${core.sealItem(json, vaultKey).length}`).toBe(
-        `${name} envelope: ${num(entry, "envelopeLength")}`,
+        `${name} envelope: ${num(entry, "envelopeLength")}`
       );
     }
   });
@@ -625,11 +596,9 @@ describe("items", () => {
       // который проверяет. Сами конверты здесь валидны — ломается разбор
       // после расшифровки.
       expect(`${name}: ${hex(core.open(vaultKey, bytes(entry, "envelope")))}`).toBe(
-        `${name}: ${text(entry, "paddedPlaintext")}`,
+        `${name}: ${text(entry, "paddedPlaintext")}`
       );
-      expectRejected(entry, () =>
-        core.openItem(bytes(entry, "envelope"), vaultKey),
-      );
+      expectRejected(entry, () => core.openItem(bytes(entry, "envelope"), vaultKey));
     }
   });
 
