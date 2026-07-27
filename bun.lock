@@ -62,19 +62,6 @@
       "name": "@caesar/core-wasm",
       "version": "0.0.0",
     },
-    "packages/crypto": {
-      "name": "@caesar/crypto",
-      "version": "0.0.0",
-      "dependencies": {
-        "@noble/hashes": "^2.0.1",
-        "comlink": "^4.4.2",
-      },
-      "devDependencies": {
-        "@biomejs/biome": "^1.9.4",
-        "@caesar/typescript-config": "workspace:*",
-        "typescript": "^5.7.2",
-      },
-    },
     "packages/db": {
       "name": "@caesar/db",
       "version": "0.0.0",
@@ -168,8 +155,6 @@
     "@caesar/auth-client": ["@caesar/auth-client@workspace:packages/auth-client"],
 
     "@caesar/core-wasm": ["@caesar/core-wasm@workspace:packages/core-wasm"],
-
-    "@caesar/crypto": ["@caesar/crypto@workspace:packages/crypto"],
 
     "@caesar/db": ["@caesar/db@workspace:packages/db"],
 
@@ -336,8 +321,6 @@
     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
 
     "colors": ["colors@1.4.0", "", {}, "sha512-a+UqTh4kgZg/SlGvfbzDHpgRu7AAQOmmqRHJnxhRZICKFUT91brVhNNt58CMWU9PsBbv3PDCZUHbVxuDiH2mtA=="],
-
-    "comlink": ["comlink@4.4.2", "", {}, "sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g=="],
 
     "commander": ["commander@8.3.0", "", {}, "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww=="],
 
