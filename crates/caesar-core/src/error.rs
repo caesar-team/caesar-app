@@ -33,6 +33,14 @@ pub enum Error {
 
     #[error("no secure random source available")]
     RandomSourceUnavailable,
+
+    /// Сервер прислал параметры KDF слабее вкомпилированного пола.
+    #[error("kdf parameters below the compiled-in floor: m={m_cost}, t={t_cost}, p={p_cost}")]
+    WeakKdfParams {
+        m_cost: u32,
+        t_cost: u32,
+        p_cost: u32,
+    },
 }
 
 /// Redacts detail derived from decrypted plaintext unless `debug-errors` is on.
