@@ -115,7 +115,7 @@ export function Create() {
   const [viewsMode, setViewsMode] = useState<ViewsMode>("once");
   const [viewCount, setViewCount] = useState(2);
   const [pwEnabled, setPwEnabled] = useState(true);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(() => generatePassword());
   const [showPw, setShowPw] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
@@ -650,8 +650,9 @@ export function Create() {
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragging(false);
-                  if (e.dataTransfer.files.length > 0) {
-                    setFiles((prev) => [...prev, ...Array.from(e.dataTransfer.files)]);
+                  const dropped = Array.from(e.dataTransfer.files);
+                  if (dropped.length > 0) {
+                    setFiles((prev) => [...prev, ...dropped]);
                   }
                 }}
                 onDragOver={(e) => {
@@ -673,8 +674,9 @@ export function Create() {
                   type="file"
                   multiple
                   onChange={(e) => {
-                    if (e.target.files && e.target.files.length > 0) {
-                      setFiles((prev) => [...prev, ...Array.from(e.target.files as FileList)]);
+                    const picked = Array.from(e.target.files ?? []);
+                    if (picked.length > 0) {
+                      setFiles((prev) => [...prev, ...picked]);
                     }
                     e.target.value = "";
                   }}

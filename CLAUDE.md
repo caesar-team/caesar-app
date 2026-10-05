@@ -64,6 +64,7 @@ bun agent:backend    # Run Backend agent
 - Better Auth for authentication
 - Vitest for unit tests, Playwright for E2E
 - Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`
+- **No comments in code.** Express intent through naming and structure; put the *why* in commit messages and PR descriptions. Tool directives (`biome-ignore`, `@ts-expect-error`) are not comments and are allowed.
 
 ## Gitea Integration
 
