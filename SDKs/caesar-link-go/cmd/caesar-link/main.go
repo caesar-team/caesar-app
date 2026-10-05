@@ -61,7 +61,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "caesar-link:", err)
+		fmt.Fprintln(os.Stderr, "caesar-link:", strings.TrimPrefix(err.Error(), "caesarlink: "))
 		os.Exit(1)
 	}
 }
@@ -187,6 +187,10 @@ func open(ctx context.Context, args []string) error {
 			return err
 		}
 		payload, err = c.Open(ctx, link, password)
+	}
+	if errors.Is(err, caesarlink.ErrWrongPassword) {
+		// Checked against the wrapped key before the download, so nothing was consumed.
+		return fmt.Errorf("%w (no view was spent, try again)", err)
 	}
 	if err != nil {
 		return err

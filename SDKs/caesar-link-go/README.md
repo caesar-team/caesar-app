@@ -128,6 +128,11 @@ Check them with `errors.Is` / `errors.As`:
 
 [`cmd/caesar-link`](cmd/caesar-link) is a working CLI and the reference integration:
 
+![caesar-link demo: burn after reading, then a password share where a wrong guess spends no view](demo/demo.gif)
+
+The recording above is made against the live server from [`demo/demo.tape`](demo/demo.tape).
+Re-render it with `vhs demo/demo.tape` from this directory.
+
 ```bash
 go install github.com/caesar-team/caesar-app/SDKs/caesar-link-go/cmd/caesar-link@main
 
