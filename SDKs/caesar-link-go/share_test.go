@@ -224,6 +224,7 @@ func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 		"https://link.bshk.app/x/abc#k." + key,
 		"ftp://link.bshk.app/s/abc#k." + key,
 		"https://link.bshk.app/s/a%2Fb#k." + key,
+		"https://link.bshk.app/s/abc%23k." + key, // encoded `#`: the key lands in the id (Codex review)
 	} {
 		_, err := ParseURL(in)
 		if err == nil {
@@ -234,8 +235,22 @@ func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 			t.Errorf("error leaks the key: %v", err)
 		}
 	}
-	if _, err := (&Client{}).Open(context.Background(), "https://link.bshk.app/s/abc#k."+key+"%", ""); err == nil || strings.Contains(err.Error(), key) {
-		t.Errorf("Open error leaks the key or is nil: %v", err)
+	ctx := context.Background()
+	for _, link := range []string{
+		"https://link.bshk.app/s/abc#k." + key + "%",
+		"https://link.bshk.app/s/abc%23k." + key,
+	} {
+		if _, err := (&Client{}).Open(ctx, link, ""); err == nil || strings.Contains(err.Error(), key) {
+			t.Errorf("Open error leaks the key or is nil: %v", err)
+		}
+	}
+	// A key pasted where an id belongs must not be echoed back either.
+	c := NewClient("http://127.0.0.1:1")
+	if _, err := c.Info(ctx, "abc#k."+key); err == nil || strings.Contains(err.Error(), key) {
+		t.Errorf("Info error leaks the key or is nil: %v", err)
+	}
+	if err := c.Delete(ctx, "abc#k."+key, "tok"); err == nil || strings.Contains(err.Error(), key) {
+		t.Errorf("Delete error leaks the key or is nil: %v", err)
 	}
 }
 

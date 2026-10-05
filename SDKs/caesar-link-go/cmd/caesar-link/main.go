@@ -82,8 +82,8 @@ func exitOnInterrupt() {
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-signals
+		// No output here: a write to a stalled stderr pipe could block the exit forever.
 		restoreTerminal()
-		fmt.Fprintln(os.Stderr)
 		if sig == syscall.SIGTERM {
 			os.Exit(143)
 		}

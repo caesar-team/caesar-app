@@ -105,7 +105,8 @@ func ParseURL(raw string) (ShareURL, error) {
 	}
 	id := path[cut+len("/s/"):]
 	if !idPattern.MatchString(id) {
-		return ShareURL{}, malformed("share id has unexpected characters: %q", id)
+		// Not quoted: with an encoded `#` (`abc%23k.<key>`) the "id" carries the key.
+		return ShareURL{}, malformed("share id has unexpected characters")
 	}
 	return ShareURL{Base: u.Scheme + "://" + u.Host + path[:cut], ID: id, Fragment: u.Fragment}, nil
 }

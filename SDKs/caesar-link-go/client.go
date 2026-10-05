@@ -244,7 +244,7 @@ func (c *Client) Open(ctx context.Context, link, password string) (Payload, erro
 // Delete revokes a share early using the token returned by Create.
 func (c *Client) Delete(ctx context.Context, id, deleteToken string) error {
 	if !idPattern.MatchString(id) {
-		return malformed("bad share id %q", id)
+		return malformed("bad share id") // never quoted: it may hold a pasted key
 	}
 	req, err := c.newRequest(ctx, http.MethodDelete, c.BaseURL, "/api/shares/"+id, nil)
 	if err != nil {
@@ -261,7 +261,7 @@ func (c *Client) Delete(ctx context.Context, id, deleteToken string) error {
 
 func (c *Client) fetchMeta(ctx context.Context, base, id string) (*metaResponse, error) {
 	if !idPattern.MatchString(id) {
-		return nil, malformed("bad share id %q", id)
+		return nil, malformed("bad share id") // never quoted: it may hold a pasted key
 	}
 	req, err := c.newRequest(ctx, http.MethodGet, base, "/api/shares/"+id, nil)
 	if err != nil {
