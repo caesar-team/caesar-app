@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// fastScrypt keeps password tests quick; the default (N=2¹⁷) is exercised by the client tests.
 var fastScrypt = scryptParams{N: 1 << 10, R: 8, P: 1}
 
 func TestSealUnsealRoundTrip(t *testing.T) {
@@ -89,8 +88,6 @@ func TestSealRejectsBadPayloads(t *testing.T) {
 }
 
 func TestEnvelopeWireShape(t *testing.T) {
-	// Decrypt our own output and check the JSON matches the TS/Swift wire exactly: absent
-	// fields are omitted, not null.
 	b, err := Seal(TextPayload("hi"), "")
 	if err != nil {
 		t.Fatal(err)
@@ -131,9 +128,9 @@ func TestDecodeFragmentRejectsGarbage(t *testing.T) {
 	for _, frag := range []string{
 		"",
 		"nodot",
-		"x." + b64encode(make([]byte, keyLen)),   // unknown mode
-		"k." + b64encode(make([]byte, keyLen-1)), // short key
-		"p." + b64encode(make([]byte, wrappedLen+1)), // long wrapped key
+		"x." + b64encode(make([]byte, keyLen)),
+		"k." + b64encode(make([]byte, keyLen-1)),
+		"p." + b64encode(make([]byte, wrappedLen+1)),
 		"k.!!!not-base64!!!",
 	} {
 		if _, err := decodeFragment(frag); !errors.Is(err, ErrMalformed) {
@@ -181,10 +178,8 @@ func TestParseURL(t *testing.T) {
 		{"  https://link.bshk.app/s/abc#k.xyz\n", ShareURL{"https://link.bshk.app", "abc", "k.xyz"}},
 		{"http://localhost:3000/s/abc/#p.xyz", ShareURL{"http://localhost:3000", "abc", "p.xyz"}},
 		{"https://example.com/tools/link/s/abc#k.xyz", ShareURL{"https://example.com/tools/link", "abc", "k.xyz"}},
-		// A base path with its own `s` segment (Codex review): the id follows the *last* /s/.
 		{"https://example.com/tools/s/link/s/abc#k.xyz", ShareURL{"https://example.com/tools/s/link", "abc", "k.xyz"}},
 		{"https://example.com/s/s/abc#k.xyz", ShareURL{"https://example.com/s", "abc", "k.xyz"}},
-		// No fragment parses (enough for Info/Delete); Open rejects it separately.
 		{"https://link.bshk.app/s/abc", ShareURL{"https://link.bshk.app", "abc", ""}},
 	}
 	for _, c := range cases {
@@ -199,13 +194,13 @@ func TestParseURL(t *testing.T) {
 	}
 
 	for _, in := range []string{
-		"https://link.bshk.app/x/abc#k.xyz",   // no /s/
-		"https://link.bshk.app/s/#k.xyz",      // empty id
-		"https://link.bshk.app/s/abc/x#k.xyz", // id is not the last segment
-		"https://link.bshk.app/s/..#k.xyz",    // path traversal
-		"https://link.bshk.app/s/a%2Fb#k.x",   // encoded slash
-		"ftp://link.bshk.app/s/abc#k.xyz",     // not http(s)
-		"/s/abc#k.xyz",                        // relative
+		"https://link.bshk.app/x/abc#k.xyz",
+		"https://link.bshk.app/s/#k.xyz",
+		"https://link.bshk.app/s/abc/x#k.xyz",
+		"https://link.bshk.app/s/..#k.xyz",
+		"https://link.bshk.app/s/a%2Fb#k.x",
+		"ftp://link.bshk.app/s/abc#k.xyz",
+		"/s/abc#k.xyz",
 	} {
 		if _, err := ParseURL(in); !errors.Is(err, ErrMalformed) {
 			t.Errorf("ParseURL(%q) err = %v, want ErrMalformed", in, err)
@@ -213,8 +208,6 @@ func TestParseURL(t *testing.T) {
 	}
 }
 
-// The fragment is the decryption key, so no parse error may quote the link. url.Parse
-// echoes its whole input on error (Codex review).
 func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 	const key = "FMQtdiRTW8OZfNd9SZiqdQ6dntyjZ1kGDirmbdOsR0g"
 	for _, in := range []string{
@@ -224,7 +217,7 @@ func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 		"https://link.bshk.app/x/abc#k." + key,
 		"ftp://link.bshk.app/s/abc#k." + key,
 		"https://link.bshk.app/s/a%2Fb#k." + key,
-		"https://link.bshk.app/s/abc%23k." + key, // encoded `#`: the key lands in the id (Codex review)
+		"https://link.bshk.app/s/abc%23k." + key,
 	} {
 		_, err := ParseURL(in)
 		if err == nil {
@@ -244,7 +237,6 @@ func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 			t.Errorf("Open error leaks the key or is nil: %v", err)
 		}
 	}
-	// A key pasted where an id belongs must not be echoed back either.
 	c := NewClient("http://127.0.0.1:1")
 	if _, err := c.Info(ctx, "abc#k."+key); err == nil || strings.Contains(err.Error(), key) {
 		t.Errorf("Info error leaks the key or is nil: %v", err)
@@ -255,7 +247,6 @@ func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
 }
 
 func TestOpenRejectsLinkWithoutFragment(t *testing.T) {
-	// Must fail before any request: the client points at a closed port.
 	for _, link := range []string{"http://127.0.0.1:1/s/abc", "http://127.0.0.1:1/s/abc#"} {
 		if _, err := (&Client{}).Open(context.Background(), link, ""); !errors.Is(err, ErrMalformed) {
 			t.Errorf("Open(%q) err = %v, want ErrMalformed", link, err)
@@ -280,8 +271,6 @@ func TestBuildURLRoundTrip(t *testing.T) {
 	}
 }
 
-// The form is where an SDK has to match the server's parser exactly — the Swift kit
-// shipped `views=""` for unlimited and got a 400.
 func TestFormFields(t *testing.T) {
 	get := func(opts CreateOptions) map[string]string {
 		t.Helper()

@@ -15,14 +15,10 @@ import (
 )
 
 const (
-	// DefaultBaseURL is the public Caesar Link instance.
 	DefaultBaseURL = "https://link.bshk.app"
 
-	// UnlimitedViews, as CreateOptions.Views, lets a share be opened until it expires.
 	UnlimitedViews = -1
 
-	// DefaultMaxBlobSize caps downloads when Client.MaxBlobSize is zero. It matches the
-	// server's default upload limit.
 	DefaultMaxBlobSize = 100 << 20
 
 	minTTL         = time.Minute
@@ -33,50 +29,31 @@ const (
 	deleteTokenHdr = "X-Delete-Token"
 )
 
-// Client talks to a Link server. All encryption happens locally: the server only ever
-// receives ciphertext, the public IV and (for password shares) the scrypt parameters.
 type Client struct {
-	// BaseURL of the server used by Create, Info and Delete. Open ignores it and talks to
-	// the host in the link itself, the way a browser would.
-	BaseURL string
-	// HTTPClient defaults to http.DefaultClient. Use the context for deadlines.
-	HTTPClient *http.Client
-	// MaxBlobSize caps how many bytes Open will download. Zero means DefaultMaxBlobSize.
+	BaseURL     string
+	HTTPClient  *http.Client
 	MaxBlobSize int64
 }
 
-// NewClient returns a client for the server at baseURL (e.g. DefaultBaseURL).
 func NewClient(baseURL string) *Client {
 	return &Client{BaseURL: baseURL}
 }
 
-// CreateOptions controls the lifetime of a new share.
 type CreateOptions struct {
-	// TTL is required: at least one minute, truncated to whole seconds. The server rejects
-	// anything above its configured maximum (30 days by default) with a 400.
-	TTL time.Duration
-	// Views is how many times the share may be opened. Zero means 1 (burn after reading);
-	// UnlimitedViews removes the limit.
-	Views int
-	// Password, when set, wraps the key under scrypt so the link alone cannot open the
-	// share. Deliver it over a separate channel.
+	TTL      time.Duration
+	Views    int
 	Password string
 }
 
-// Created is a freshly uploaded share.
 type Created struct {
-	ID string
-	// DeleteToken revokes the share early via Client.Delete.
+	ID          string
 	DeleteToken string
-	// URL is the full share link with the key in its fragment — the only copy of the key.
-	// Do not log it.
-	URL string
+	URL         string
 }
 
-// Info is what the server knows about a share. Fetching it does not consume a view.
 type Info struct {
 	Size              int64
-	ViewsLeft         *int // nil = unlimited
+	ViewsLeft         *int
 	ExpiresAt         time.Time
 	PasswordProtected bool
 }
@@ -90,10 +67,9 @@ type metaResponse struct {
 	Meta      shareMeta `json:"meta"`
 	Size      int64     `json:"size"`
 	ViewsLeft *int      `json:"viewsLeft"`
-	ExpiresAt int64     `json:"expiresAt"` // unix milliseconds
+	ExpiresAt int64     `json:"expiresAt"`
 }
 
-// Create seals the payload locally, uploads the ciphertext and returns the share link.
 func (c *Client) Create(ctx context.Context, p Payload, opts CreateOptions) (*Created, error) {
 	form, err := formFields(opts)
 	if err != nil {
@@ -122,7 +98,7 @@ func (c *Client) upload(ctx context.Context, bundle *Bundle, form []formField) (
 			return nil, err
 		}
 	}
-	part, err := mw.CreateFormFile("blob", "blob.bin") // application/octet-stream
+	part, err := mw.CreateFormFile("blob", "blob.bin")
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +134,6 @@ func (c *Client) upload(ctx context.Context, bundle *Bundle, form []formField) (
 
 type formField struct{ name, value string }
 
-// formFields builds the non-blob, non-meta form fields. Unlimited views are expressed by
-// omitting `views`: the server treats a missing field as unlimited but rejects an empty one.
 func formFields(opts CreateOptions) ([]formField, error) {
 	if opts.TTL < minTTL {
 		return nil, fmt.Errorf("caesarlink: TTL must be at least %s, got %s", minTTL, opts.TTL)
@@ -177,7 +151,6 @@ func formFields(opts CreateOptions) ([]formField, error) {
 	return fields, nil
 }
 
-// Info returns a share's metadata from Client.BaseURL. It does not consume a view.
 func (c *Client) Info(ctx context.Context, id string) (*Info, error) {
 	m, err := c.fetchMeta(ctx, c.BaseURL, id)
 	if err != nil {
@@ -191,12 +164,6 @@ func (c *Client) Info(ctx context.Context, id string) (*Info, error) {
 	}, nil
 }
 
-// Open fetches and decrypts a share link from the server named in the link.
-//
-// Opening **consumes a view**. Everything that can be checked without spending one is
-// checked first, from the link and the (free) metadata: the fragment, the IV, the declared
-// size against MaxBlobSize, and for `p.` links the password itself — verified against the
-// wrapped key, so a wrong password costs nothing.
 func (c *Client) Open(ctx context.Context, link, password string) (Payload, error) {
 	u, err := ParseURL(link)
 	if err != nil {
@@ -233,7 +200,6 @@ func (c *Client) Open(ctx context.Context, link, password string) (Payload, erro
 		return Payload{}, err
 	}
 
-	// Point of no return: the server spends a view on this request.
 	ciphertext, err := c.fetchBlob(ctx, u.Base, u.ID, limit)
 	if err != nil {
 		return Payload{}, err
@@ -241,10 +207,9 @@ func (c *Client) Open(ctx context.Context, link, password string) (Payload, erro
 	return openEnvelope(SealedBlob{Ciphertext: ciphertext, IV: iv}, dek)
 }
 
-// Delete revokes a share early using the token returned by Create.
 func (c *Client) Delete(ctx context.Context, id, deleteToken string) error {
 	if !idPattern.MatchString(id) {
-		return malformed("bad share id") // never quoted: it may hold a pasted key
+		return malformed("bad share id")
 	}
 	req, err := c.newRequest(ctx, http.MethodDelete, c.BaseURL, "/api/shares/"+id, nil)
 	if err != nil {
@@ -261,7 +226,7 @@ func (c *Client) Delete(ctx context.Context, id, deleteToken string) error {
 
 func (c *Client) fetchMeta(ctx context.Context, base, id string) (*metaResponse, error) {
 	if !idPattern.MatchString(id) {
-		return nil, malformed("bad share id") // never quoted: it may hold a pasted key
+		return nil, malformed("bad share id")
 	}
 	req, err := c.newRequest(ctx, http.MethodGet, base, "/api/shares/"+id, nil)
 	if err != nil {
@@ -287,7 +252,6 @@ func (c *Client) fetchBlob(ctx context.Context, base, id string, limit int64) ([
 	if err := checkStatus(resp); err != nil {
 		return nil, err
 	}
-	// Read one byte past the limit to detect an oversized body, without overflowing.
 	readLimit := limit
 	if readLimit < math.MaxInt64 {
 		readLimit++
@@ -355,8 +319,6 @@ func checkStatus(resp *http.Response) error {
 	return &ServerError{Status: resp.StatusCode, Body: errorMessage(resp.Header.Get("Content-Type"), raw)}
 }
 
-// errorMessage extracts something worth showing from an error body: the server's JSON
-// `{"error": "…"}`, or short plain text. HTML pages (proxy 404s) are dropped.
 func errorMessage(contentType string, raw []byte) string {
 	var body struct {
 		Error string `json:"error"`
