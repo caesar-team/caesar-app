@@ -202,6 +202,9 @@ func (c *Client) Open(ctx context.Context, link, password string) (Payload, erro
 	if err != nil {
 		return Payload{}, err
 	}
+	if u.Fragment == "" {
+		return Payload{}, malformed("share URL has no #fragment, nothing to decrypt with")
+	}
 	frag, err := decodeFragment(u.Fragment)
 	if err != nil {
 		return Payload{}, err

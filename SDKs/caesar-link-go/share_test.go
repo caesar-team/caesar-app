@@ -2,6 +2,7 @@ package caesarlink
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -180,6 +181,11 @@ func TestParseURL(t *testing.T) {
 		{"  https://link.bshk.app/s/abc#k.xyz\n", ShareURL{"https://link.bshk.app", "abc", "k.xyz"}},
 		{"http://localhost:3000/s/abc/#p.xyz", ShareURL{"http://localhost:3000", "abc", "p.xyz"}},
 		{"https://example.com/tools/link/s/abc#k.xyz", ShareURL{"https://example.com/tools/link", "abc", "k.xyz"}},
+		// A base path with its own `s` segment (Codex review): the id follows the *last* /s/.
+		{"https://example.com/tools/s/link/s/abc#k.xyz", ShareURL{"https://example.com/tools/s/link", "abc", "k.xyz"}},
+		{"https://example.com/s/s/abc#k.xyz", ShareURL{"https://example.com/s", "abc", "k.xyz"}},
+		// No fragment parses (enough for Info/Delete); Open rejects it separately.
+		{"https://link.bshk.app/s/abc", ShareURL{"https://link.bshk.app", "abc", ""}},
 	}
 	for _, c := range cases {
 		got, err := ParseURL(c.in)
@@ -193,17 +199,51 @@ func TestParseURL(t *testing.T) {
 	}
 
 	for _, in := range []string{
-		"https://link.bshk.app/s/abc",       // no fragment: nothing to decrypt with
-		"https://link.bshk.app/s/abc#",      // empty fragment
-		"https://link.bshk.app/x/abc#k.xyz", // no /s/
-		"https://link.bshk.app/s/#k.xyz",    // empty id
-		"https://link.bshk.app/s/..#k.xyz",  // path traversal
-		"https://link.bshk.app/s/a%2Fb#k.x", // encoded slash
-		"ftp://link.bshk.app/s/abc#k.xyz",   // not http(s)
-		"/s/abc#k.xyz",                      // relative
+		"https://link.bshk.app/x/abc#k.xyz",   // no /s/
+		"https://link.bshk.app/s/#k.xyz",      // empty id
+		"https://link.bshk.app/s/abc/x#k.xyz", // id is not the last segment
+		"https://link.bshk.app/s/..#k.xyz",    // path traversal
+		"https://link.bshk.app/s/a%2Fb#k.x",   // encoded slash
+		"ftp://link.bshk.app/s/abc#k.xyz",     // not http(s)
+		"/s/abc#k.xyz",                        // relative
 	} {
 		if _, err := ParseURL(in); !errors.Is(err, ErrMalformed) {
 			t.Errorf("ParseURL(%q) err = %v, want ErrMalformed", in, err)
+		}
+	}
+}
+
+// The fragment is the decryption key, so no parse error may quote the link. url.Parse
+// echoes its whole input on error (Codex review).
+func TestParseURLErrorsNeverLeakTheKey(t *testing.T) {
+	const key = "FMQtdiRTW8OZfNd9SZiqdQ6dntyjZ1kGDirmbdOsR0g"
+	for _, in := range []string{
+		"https://link.bshk.app/s/abc#k." + key + "%",
+		"https://link.bshk.app/s/abc#k." + key + "%zz",
+		"https://link.bshk.app:bad/s/abc#k." + key,
+		"https://link.bshk.app/x/abc#k." + key,
+		"ftp://link.bshk.app/s/abc#k." + key,
+		"https://link.bshk.app/s/a%2Fb#k." + key,
+	} {
+		_, err := ParseURL(in)
+		if err == nil {
+			t.Errorf("ParseURL(%q): expected an error", in)
+			continue
+		}
+		if strings.Contains(err.Error(), key) {
+			t.Errorf("error leaks the key: %v", err)
+		}
+	}
+	if _, err := (&Client{}).Open(context.Background(), "https://link.bshk.app/s/abc#k."+key+"%", ""); err == nil || strings.Contains(err.Error(), key) {
+		t.Errorf("Open error leaks the key or is nil: %v", err)
+	}
+}
+
+func TestOpenRejectsLinkWithoutFragment(t *testing.T) {
+	// Must fail before any request: the client points at a closed port.
+	for _, link := range []string{"http://127.0.0.1:1/s/abc", "http://127.0.0.1:1/s/abc#"} {
+		if _, err := (&Client{}).Open(context.Background(), link, ""); !errors.Is(err, ErrMalformed) {
+			t.Errorf("Open(%q) err = %v, want ErrMalformed", link, err)
 		}
 	}
 }
@@ -214,10 +254,14 @@ func TestBuildURLRoundTrip(t *testing.T) {
 			t.Errorf("BuildURL(%q) = %s", base, got)
 		}
 	}
-	u := ShareURL{"https://example.com/link", "abc", "k.xyz"}
-	got, err := ParseURL(u.String())
-	if err != nil || got != u {
-		t.Fatalf("round trip = %+v, %v", got, err)
+	for _, u := range []ShareURL{
+		{"https://example.com/link", "abc", "k.xyz"},
+		{"https://example.com/tools/s/link", "-dashed_ID", "p.xyz"},
+	} {
+		got, err := ParseURL(u.String())
+		if err != nil || got != u {
+			t.Fatalf("round trip %+v = %+v, %v", u, got, err)
+		}
 	}
 }
 

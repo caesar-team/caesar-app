@@ -38,6 +38,24 @@ func TestParseFlagsKeepsDashedIDsPositional(t *testing.T) {
 	}
 }
 
+// info/delete accept a share URL: it names its own server (like `open`) and needs no key.
+func TestShareTarget(t *testing.T) {
+	cases := []struct{ arg, wantBase, wantID string }{
+		{"-dashedID", "https://default", "-dashedID"},
+		{"https://link.bshk.app/s/abc#k.key", "https://link.bshk.app", "abc"},
+		{"https://example.com/tools/s/link/s/abc", "https://example.com/tools/s/link", "abc"},
+	}
+	for _, c := range cases {
+		client, id, err := shareTarget(c.arg, "https://default")
+		if err != nil || client.BaseURL != c.wantBase || id != c.wantID {
+			t.Errorf("shareTarget(%q) = %q, %q, %v; want %q, %q", c.arg, client.BaseURL, id, err, c.wantBase, c.wantID)
+		}
+	}
+	if _, _, err := shareTarget("https://link.bshk.app/x/abc", "https://default"); err == nil {
+		t.Error("a URL without /s/<id> must be rejected")
+	}
+}
+
 // File names come from whoever created the share, so they must not escape -out or clobber
 // existing files.
 func TestSaveFileIsConfinedToOutDir(t *testing.T) {

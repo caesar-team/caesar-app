@@ -88,6 +88,11 @@ wrong password costs a view. Here it does not.
 `c.Info(ctx, id)` returns size, views left, expiry and whether a password is needed, without
 consuming a view.
 
+`caesarlink.ParseURL(link)` splits a link into `Base`, `ID` and `Fragment`. It accepts a link
+without a fragment, which is enough for `Info` and `Delete`; `Open` rejects such a link.
+The id is taken after the *last* `/s/`, so a server mounted under a path that has its own
+`s` segment still works. Parse errors never quote the link, because its fragment is the key.
+
 ### Offline
 
 `Seal` and `Unseal` do the crypto with no network. Use them if you handle transport yourself:
@@ -128,25 +133,32 @@ Check them with `errors.Is` / `errors.As`:
 
 [`cmd/caesar-link`](cmd/caesar-link) is a working CLI and the reference integration:
 
-![caesar-link demo: burn after reading, then a password share where a wrong guess spends no view](demo/demo.gif)
+![caesar-link demo: burn after reading; a password share where a wrong guess spends no view; files with JSON output, info and revoke](demo/demo.gif)
 
-The recording above is made against the live server from [`demo/demo.tape`](demo/demo.tape).
-Re-render it with `vhs demo/demo.tape` from this directory.
+The recording shows three runs against the live server: burn after reading, a password
+share where a wrong guess spends no view, and files with JSON output, `info` and revoke.
+It is made from [`demo/demo.tape`](demo/demo.tape); re-render it with
+`vhs demo/demo.tape` from this directory (needs `vhs`, `go` and `jq`).
 
 ```bash
 go install github.com/caesar-team/caesar-app/SDKs/caesar-link-go/cmd/caesar-link@main
 
 echo -n 's3cret' | caesar-link create -ttl 1h        # prints the URL; id + delete token go to stderr
 caesar-link create -password -file key.pem            # prompts for a password, no echo
+caesar-link create -views 0 -file a.env -json         # {"url","id","deleteToken"} for scripts
 caesar-link open 'https://link.bshk.app/s/<id>#k.<key>'
 caesar-link open -out ./received '<url>'              # files; never overwrites
-caesar-link info <id>
-caesar-link delete <id> <delete-token>
+caesar-link info <id|url>
+caesar-link delete <id|url> <delete-token>
 ```
+
+`info` and `delete` take either a bare id (sent to `-server`) or the share URL. A URL names
+its own server, like it does for `open`.
 
 The CLI never takes a password as a command-line value, because argv shows up in `ps` and in
 shell history. It reads `-password-file`, then a no-echo prompt on `/dev/tty`, then
 `$CAESAR_LINK_PASSWORD`. `open` prompts by itself when a link turns out to need a password.
+Ctrl-C works at any prompt and restores terminal echo on the way out.
 
 Share IDs and delete tokens can start with `-`. The CLI treats them as arguments, not flags.
 

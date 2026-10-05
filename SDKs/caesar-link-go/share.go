@@ -2,6 +2,7 @@ package caesarlink
 
 import (
 	"crypto/rand"
+	"errors"
 	"net/url"
 	"regexp"
 	"strings"
@@ -78,36 +79,33 @@ func BuildURL(base, id, fragment string) string {
 // requests to other paths (`..`, `?`, `/`).
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// ParseURL splits a share link into base, id and fragment. A link without a fragment is
-// rejected: there is nothing to decrypt with.
+// ParseURL splits a share link into base, id and fragment. The fragment may be empty — that
+// is enough for Info or Delete — but Open rejects such a link: nothing to decrypt with.
+//
+// Errors never quote the link: its fragment is the decryption key.
 func ParseURL(raw string) (ShareURL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err // drop the echoed URL, keep the cause
+		}
 		return ShareURL{}, malformed("not a URL: %v", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return ShareURL{}, malformed("share URL must be http(s), got %q", u.Scheme)
 	}
-	if u.Fragment == "" {
-		return ShareURL{}, malformed("share URL has no #fragment")
-	}
-	// The escaped path, like the TS SDK's URL.pathname: an encoded `/` stays inside its
-	// segment (and then fails the id check) instead of splitting it.
-	segments := strings.Split(u.EscapedPath(), "/")
-	s := -1
-	for i, seg := range segments {
-		if seg == "s" {
-			s = i
-			break
-		}
-	}
-	if s == -1 || s+1 >= len(segments) || segments[s+1] == "" {
+	// The id is the last segment, right after the last `/s/`, so a base path may itself
+	// contain an `s` segment. The escaped path, like the TS SDK's URL.pathname, keeps an
+	// encoded `/` inside the id, where the id check then rejects it.
+	path := strings.TrimSuffix(u.EscapedPath(), "/")
+	cut := strings.LastIndex(path, "/s/")
+	if cut == -1 || cut+len("/s/") == len(path) {
 		return ShareURL{}, malformed("share URL has no /s/<id> path")
 	}
-	id := segments[s+1]
+	id := path[cut+len("/s/"):]
 	if !idPattern.MatchString(id) {
 		return ShareURL{}, malformed("share id has unexpected characters: %q", id)
 	}
-	base := u.Scheme + "://" + u.Host + strings.Join(segments[:s], "/")
-	return ShareURL{Base: base, ID: id, Fragment: u.Fragment}, nil
+	return ShareURL{Base: u.Scheme + "://" + u.Host + path[:cut], ID: id, Fragment: u.Fragment}, nil
 }

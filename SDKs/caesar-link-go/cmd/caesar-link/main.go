@@ -4,9 +4,10 @@
 //	echo -n 's3cret' | caesar-link create -ttl 1h            # prints the share URL
 //	caesar-link create -ttl 24h -views 3 -file report.pdf
 //	caesar-link create -password -file key.pem               # prompts for a password
+//	caesar-link create -json -file a.txt                     # {"url","id","deleteToken"}
 //	caesar-link open 'https://link.bshk.app/s/<id>#k.<key>'   # text → stdout, files → -out
-//	caesar-link info <id>
-//	caesar-link delete <id> <delete-token>
+//	caesar-link info <id|url>
+//	caesar-link delete <id|url> <delete-token>
 //
 // Passwords are never accepted as command-line values: argv is visible in the process list
 // and shell history. They come, in order of precedence, from -password-file, an interactive
@@ -17,6 +18,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +28,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/term"
@@ -40,8 +44,8 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	exitOnInterrupt()
+	ctx := context.Background()
 
 	var err error
 	switch cmd, args := os.Args[1], os.Args[2:]; cmd {
@@ -68,6 +72,38 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: caesar-link <create|open|info|delete> [flags] — run a command with -h for its flags")
+}
+
+// exitOnInterrupt makes Ctrl-C work even while blocked on stdin or a password prompt,
+// neither of which can observe a context. It exits at once, after undoing the no-echo mode
+// a prompt may have left on the terminal.
+func exitOnInterrupt() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-signals
+		restoreTerminal()
+		fmt.Fprintln(os.Stderr)
+		if sig == syscall.SIGTERM {
+			os.Exit(143)
+		}
+		os.Exit(130)
+	}()
+}
+
+// ttyState is the terminal mode saved before a no-echo prompt, so an interrupt can restore it.
+var ttyState struct {
+	sync.Mutex
+	fd    int
+	state *term.State
+}
+
+func restoreTerminal() {
+	ttyState.Lock()
+	defer ttyState.Unlock()
+	if ttyState.state != nil {
+		_ = term.Restore(ttyState.fd, ttyState.state)
+	}
 }
 
 // parseFlags parses only the flags fs defines and returns everything else as positional
@@ -111,6 +147,7 @@ func create(ctx context.Context, args []string) error {
 	views := fs.Int("views", 1, "reads before self-destruct; 0 = unlimited")
 	prompt := fs.Bool("password", false, "protect with a password, prompted on the terminal without echo")
 	passwordFile := fs.String("password-file", "", "protect with the password on the first line of this file")
+	asJSON := fs.Bool("json", false, `print {"url","id","deleteToken"} as JSON instead of the bare URL`)
 	var files fileList
 	fs.Var(&files, "file", "attach a file (repeatable); without it, stdin is shared as text")
 	if extra := parseFlags(fs, args); len(extra) > 0 {
@@ -134,6 +171,13 @@ func create(ctx context.Context, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if *asJSON {
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			URL         string `json:"url"`
+			ID          string `json:"id"`
+			DeleteToken string `json:"deleteToken"`
+		}{created.URL, created.ID, created.DeleteToken})
 	}
 	fmt.Println(created.URL)
 	fmt.Fprintf(os.Stderr, "id: %s\ndelete token: %s\n", created.ID, created.DeleteToken)
@@ -228,14 +272,31 @@ func saveFile(dir string, f caesarlink.File) (string, error) {
 	return path, out.Close()
 }
 
+// shareTarget resolves an <id|url> argument. A share URL carries its own server, as with
+// `open`, and its fragment is not needed; a bare id goes to -server.
+func shareTarget(arg, server string) (*caesarlink.Client, string, error) {
+	if !strings.Contains(arg, "://") {
+		return caesarlink.NewClient(server), arg, nil
+	}
+	u, err := caesarlink.ParseURL(arg)
+	if err != nil {
+		return nil, "", err
+	}
+	return caesarlink.NewClient(u.Base), u.ID, nil
+}
+
 func info(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("info", flag.ExitOnError)
-	server := fs.String("server", caesarlink.DefaultBaseURL, "Link server")
+	server := fs.String("server", caesarlink.DefaultBaseURL, "Link server, for a bare id")
 	pos := parseFlags(fs, args)
 	if len(pos) != 1 {
-		return errors.New("info: expected a share id")
+		return errors.New("info: expected a share id or URL")
 	}
-	i, err := caesarlink.NewClient(*server).Info(ctx, pos[0])
+	c, id, err := shareTarget(pos[0], *server)
+	if err != nil {
+		return err
+	}
+	i, err := c.Info(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -250,12 +311,20 @@ func info(ctx context.Context, args []string) error {
 
 func del(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
-	server := fs.String("server", caesarlink.DefaultBaseURL, "Link server")
+	server := fs.String("server", caesarlink.DefaultBaseURL, "Link server, for a bare id")
 	pos := parseFlags(fs, args)
 	if len(pos) != 2 {
-		return errors.New("delete: expected <id> <delete-token>")
+		return errors.New("delete: expected <id|url> <delete-token>")
 	}
-	return caesarlink.NewClient(*server).Delete(ctx, pos[0], pos[1])
+	c, id, err := shareTarget(pos[0], *server)
+	if err != nil {
+		return err
+	}
+	if err := c.Delete(ctx, id, pos[1]); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "deleted", id)
+	return nil
 }
 
 // resolvePassword picks the password source: -password-file, then an interactive prompt,
@@ -300,8 +369,20 @@ func promptPassword(confirm bool) (string, error) {
 	defer tty.Close()
 
 	read := func(label string) (string, error) {
+		fd := int(tty.Fd())
+		// Remember the echoing mode so an interrupt mid-prompt can put it back.
+		if state, err := term.GetState(fd); err == nil {
+			ttyState.Lock()
+			ttyState.fd, ttyState.state = fd, state
+			ttyState.Unlock()
+			defer func() {
+				ttyState.Lock()
+				ttyState.state = nil
+				ttyState.Unlock()
+			}()
+		}
 		fmt.Fprint(tty, label)
-		pw, err := term.ReadPassword(int(tty.Fd()))
+		pw, err := term.ReadPassword(fd)
 		fmt.Fprintln(tty)
 		return string(pw), err
 	}
