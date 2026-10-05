@@ -115,8 +115,6 @@ export function Create() {
   const [viewsMode, setViewsMode] = useState<ViewsMode>("once");
   const [viewCount, setViewCount] = useState(2);
   const [pwEnabled, setPwEnabled] = useState(true);
-  // Protection starts on, so start with a generated password too — an empty one would
-  // leave "Create" disabled with nothing on screen saying why.
   const [password, setPassword] = useState(() => generatePassword());
   const [showPw, setShowPw] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -652,8 +650,6 @@ export function Create() {
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragging(false);
-                  // Copy the files out now: the DataTransfer is emptied once this
-                  // handler returns, and the setFiles updater runs later.
                   const dropped = Array.from(e.dataTransfer.files);
                   if (dropped.length > 0) {
                     setFiles((prev) => [...prev, ...dropped]);
@@ -678,15 +674,10 @@ export function Create() {
                   type="file"
                   multiple
                   onChange={(e) => {
-                    // Copy the files out before resetting the input: clearing
-                    // `value` empties the very same FileList object in place, and
-                    // the setFiles updater only runs later — reading it lazily
-                    // there would always see zero files.
                     const picked = Array.from(e.target.files ?? []);
                     if (picked.length > 0) {
                       setFiles((prev) => [...prev, ...picked]);
                     }
-                    // Reset so picking the same file again still fires onChange.
                     e.target.value = "";
                   }}
                   style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
