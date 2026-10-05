@@ -1,0 +1,42 @@
+name: Go SDK CI
+
+# Runs on changes to the module *and* to the shared vectors: regenerating the TypeScript
+# vectors must fail here if the Go implementation no longer matches them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "SDKs/caesar-link-go/**"
+      - "packages/link-sdk/vectors/**"
+      - ".github/workflows/go-sdk-ci.yml"
+  pull_request:
+    paths:
+      - "SDKs/caesar-link-go/**"
+      - "packages/link-sdk/vectors/**"
+      - ".github/workflows/go-sdk-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SDKs/caesar-link-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: SDKs/caesar-link-go/go.mod
+          cache-dependency-path: SDKs/caesar-link-go/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # Reads packages/link-sdk/vectors/v2.json from the checkout — no vendored copy.
+      - name: go test
+        run: go test -race ./...

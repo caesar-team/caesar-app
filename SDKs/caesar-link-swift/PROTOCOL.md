@@ -1,6 +1,7 @@
 # Caesar Link protocol
 
-Wire format shared by `@caesar/link-sdk` (TypeScript) and `CaesarLinkKit` (Swift).
+Wire format shared by `@caesar/link-sdk` (TypeScript), `CaesarLinkKit` (Swift) and
+`caesar-link-go` (Go).
 Everything below is enough to write a third implementation and validate it against the
 golden vectors.
 
@@ -116,8 +117,8 @@ Readers must reject a URL with no fragment — there is nothing to decrypt with.
 |---|---|
 | `blob` | ciphertext bytes (file part, `application/octet-stream`) |
 | `meta` | JSON string: `{"iv":"<base64url>"}`, plus `"kdf":{…}` for password shares |
-| `ttl` | lifetime in seconds; the server clamps to its maximum |
-| `views` | positive integer, or empty for unlimited |
+| `ttl` | lifetime in whole seconds, from 60 up to the server's maximum (30 days by default); out of range is a `400`, not clamped |
+| `views` | positive integer; **omit** the field for unlimited — an empty value is a `400` |
 
 → `201 {"id":"…","deleteToken":"…"}`. Over-sized blobs get `413`.
 
