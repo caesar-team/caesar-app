@@ -10,8 +10,6 @@ import (
 	caesarlink "github.com/caesar-team/caesar-app/SDKs/caesar-link-go"
 )
 
-// Share ids and delete tokens are nanoids; about one in 64 starts with "-". The live smoke
-// test hit `-TGQLWN8KSoELuLTPHpcW`, which the stock flag package rejects as an unknown flag.
 func TestParseFlagsKeepsDashedIDsPositional(t *testing.T) {
 	cases := []struct {
 		args       []string
@@ -23,7 +21,7 @@ func TestParseFlagsKeepsDashedIDsPositional(t *testing.T) {
 		{[]string{"-server", "https://x", "-id", "--tok"}, []string{"-id", "--tok"}, "https://x", false},
 		{[]string{"-id", "-server=https://y", "tok"}, []string{"-id", "tok"}, "https://y", false},
 		{[]string{"--server", "https://z", "--", "-server"}, []string{"-server"}, "https://z", false},
-		{[]string{"-b", "-abc"}, []string{"-abc"}, "default", true}, // bool flag must not eat the id
+		{[]string{"-b", "-abc"}, []string{"-abc"}, "default", true},
 		{[]string{"-", "x"}, []string{"-", "x"}, "default", false},
 	}
 	for _, c := range cases {
@@ -38,7 +36,6 @@ func TestParseFlagsKeepsDashedIDsPositional(t *testing.T) {
 	}
 }
 
-// info/delete accept a share URL: it names its own server (like `open`) and needs no key.
 func TestShareTarget(t *testing.T) {
 	cases := []struct{ arg, wantBase, wantID string }{
 		{"-dashedID", "https://default", "-dashedID"},
@@ -56,8 +53,6 @@ func TestShareTarget(t *testing.T) {
 	}
 }
 
-// File names come from whoever created the share, so they must not escape -out or clobber
-// existing files.
 func TestSaveFileIsConfinedToOutDir(t *testing.T) {
 	for _, name := range []string{"../../etc/passwd", "/abs/path.txt", "..", "", "a/b/c.txt"} {
 		dir := t.TempDir()

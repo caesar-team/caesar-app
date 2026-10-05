@@ -1,7 +1,3 @@
-# caesar-link CLI mini demo, recorded against the live server.
-# Re-render from SDKs/caesar-link-go:  vhs demo/demo.tape   (needs vhs, go, jq)
-# Every share it creates is consumed or deleted before the recording ends.
-
 Output demo/demo.gif
 
 Set Shell "bash"
@@ -16,7 +12,6 @@ Set Framerate 24
 Set WaitPattern /\$ ?$/
 Set WaitTimeout 60s
 
-# Build the CLI and stage two sample files in a scratch directory.
 Hide
 Type "export PS1='$ ' && go build -o /tmp/caesar-link-demo/caesar-link ./cmd/caesar-link && export PATH=/tmp/caesar-link-demo:$PATH"
 Enter
@@ -29,7 +24,6 @@ Enter
 Wait
 Show
 
-# 1) Burn after reading
 Type "# 1) Burn after reading: sealed locally, the key lives only in the #fragment"
 Enter
 Type `URL=$(echo 'db password: hunter2' | caesar-link create -ttl 10m)`
@@ -54,7 +48,6 @@ Sleep 3s
 Ctrl+L
 Sleep 300ms
 
-# 2) Password mode
 Type "# 2) Password: asked without echo, never on the command line"
 Enter
 Type `URL=$(echo 'API_TOKEN=demo-7f3a' | caesar-link create -ttl 10m -password)`
@@ -92,7 +85,6 @@ Sleep 4s
 Ctrl+L
 Sleep 300ms
 
-# 3) Files, scripting, revoke
 Type "# 3) Files: unlimited views, JSON for scripts, revoke when done"
 Enter
 Type `caesar-link create -ttl 1h -views 0 -file deploy.env -file notes.md -json | tee share.json | jq`

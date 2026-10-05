@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-// TestLive runs against a real Link server and is skipped unless CAESAR_LINK_LIVE is set:
-//
-//	CAESAR_LINK_LIVE=https://link.bshk.app go test -run TestLive -v
-//
-// Every share it creates is short-lived and consumed or deleted before the test ends.
 func TestLive(t *testing.T) {
 	base := os.Getenv("CAESAR_LINK_LIVE")
 	if base == "" {

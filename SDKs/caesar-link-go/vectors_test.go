@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// The golden vectors are produced by the TypeScript SDK and read straight from the monorepo
-// — no vendored copy that could drift. Regenerating them upstream breaks this test
-// immediately, which is the point.
 var vectorsPath = filepath.Join("..", "..", "packages", "link-sdk", "vectors", "v2.json")
 
 type vectorFile struct {
@@ -136,7 +133,6 @@ func TestVectorsPasswordFailures(t *testing.T) {
 
 func TestVectorsWrongKey(t *testing.T) {
 	vs := loadVectors(t)
-	// Swap fragments between two link-only vectors: the GCM tag must reject the wrong key.
 	var keyed []vector
 	for _, v := range vs {
 		if v.Password == nil {

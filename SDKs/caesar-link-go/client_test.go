@@ -16,14 +16,11 @@ import (
 	"time"
 )
 
-// fakeServer implements the Link HTTP contract (apps/link/server/src/app.ts) in memory,
-// including its form validation, so client bugs surface as the same 400s the real server
-// would return.
 type fakeServer struct {
 	mu        sync.Mutex
 	shares    map[string]*fakeShare
 	next      int
-	blobReads int // GET …/blob requests — each one spends a view on the real server
+	blobReads int
 	requests  int
 }
 
@@ -33,7 +30,7 @@ type fakeShare struct {
 	viewsLeft *int
 	expiresAt int64
 	token     string
-	fakeSize  *int // when set, the size the metadata claims instead of len(blob)
+	fakeSize  *int
 }
 
 func newFakeServer(t *testing.T) (*fakeServer, *httptest.Server) {
@@ -180,13 +177,13 @@ func TestClientBurnAfterReading(t *testing.T) {
 
 func TestClientUnlimitedViewsAndDelete(t *testing.T) {
 	_, srv := newFakeServer(t)
-	c := NewClient(srv.URL + "/") // trailing slash must not produce `//api`
+	c := NewClient(srv.URL + "/")
 	ctx := context.Background()
 
 	files := FilePayload(File{Name: "a.txt", MIME: "text/plain", Data: []byte("a")})
 	created, err := c.Create(ctx, files, CreateOptions{TTL: time.Hour, Views: UnlimitedViews})
 	if err != nil {
-		t.Fatal(err) // a fake 400 here means `views` was sent for unlimited
+		t.Fatal(err)
 	}
 	if info, err := c.Info(ctx, created.ID); err != nil || info.ViewsLeft != nil {
 		t.Fatalf("info = %+v, %v; want unlimited", info, err)
@@ -209,8 +206,6 @@ func TestClientUnlimitedViewsAndDelete(t *testing.T) {
 	}
 }
 
-// A password share must never spend a view on a missing or wrong password: both are
-// detectable before the blob is downloaded.
 func TestClientPasswordDoesNotWasteViews(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	c := NewClient(srv.URL)
@@ -266,8 +261,6 @@ func TestClientServerErrors(t *testing.T) {
 	}
 }
 
-// The live deployment's proxy swaps the server's JSON 404 for an HTML page; that must not
-// end up in error messages.
 func TestErrorMessage(t *testing.T) {
 	long := strings.Repeat("x", 500)
 	cases := []struct{ contentType, body, want string }{
@@ -288,8 +281,6 @@ func TestErrorMessage(t *testing.T) {
 	}
 }
 
-// Rejections that the free metadata already justifies must happen before the blob GET —
-// otherwise a one-view share is burned for nothing. (Found in review.)
 func TestClientMaxBlobSizeDoesNotWasteView(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	c := NewClient(srv.URL)
@@ -307,14 +298,12 @@ func TestClientMaxBlobSizeDoesNotWasteView(t *testing.T) {
 		t.Fatalf("oversized share was downloaded %d time(s)", reads)
 	}
 
-	// The view survived; MaxInt64 must not overflow the read limit.
 	c.MaxBlobSize = math.MaxInt64
 	if got, err := c.Open(ctx, created.URL, ""); err != nil || len(got.Text) != 4096 {
 		t.Fatalf("open with MaxInt64 limit = %d bytes, %v", len(got.Text), err)
 	}
 }
 
-// A server-supplied body larger than the size it declared is still cut off.
 func TestClientBlobLargerThanDeclared(t *testing.T) {
 	fs, srv := newFakeServer(t)
 	c := NewClient(srv.URL)
@@ -327,7 +316,7 @@ func TestClientBlobLargerThanDeclared(t *testing.T) {
 	fs.mu.Lock()
 	small := 10
 	fs.shares[created.ID].blob = make([]byte, 4096)
-	fs.shares[created.ID].fakeSize = &small // metadata lies, so only the body cutoff can catch it
+	fs.shares[created.ID].fakeSize = &small
 	fs.mu.Unlock()
 	c.MaxBlobSize = 1024
 	if _, err := c.Open(ctx, created.URL, ""); err == nil || !strings.Contains(err.Error(), "MaxBlobSize") {
@@ -364,7 +353,6 @@ func TestClientOpenUsesTheLinkHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A client pointed elsewhere still opens the link from its own host.
 	if _, err := NewClient("http://127.0.0.1:1").Open(context.Background(), created.URL, ""); err != nil {
 		t.Fatal(err)
 	}
