@@ -115,7 +115,9 @@ export function Create() {
   const [viewsMode, setViewsMode] = useState<ViewsMode>("once");
   const [viewCount, setViewCount] = useState(2);
   const [pwEnabled, setPwEnabled] = useState(true);
-  const [password, setPassword] = useState("");
+  // Protection starts on, so start with a generated password too — an empty one would
+  // leave "Create" disabled with nothing on screen saying why.
+  const [password, setPassword] = useState(() => generatePassword());
   const [showPw, setShowPw] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
