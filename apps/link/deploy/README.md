@@ -88,6 +88,14 @@ Edit before applying:
 - `k8s/kustomization.yaml` — pin `newTag` to a real image tag.
 - `k8s/configmap.yaml` — `TRUST_PROXY: "true"` behind an ingress (default) so the
   rate limiter keys on the real client IP; set `"false"` for direct exposure.
+- Behind a CDN (e.g. Cloudflare proxy) the ingress usually sees the CDN edge or a
+  node SNAT address, not the client, so every user lands in one rate-limit bucket.
+  Set `CLIENT_IP_HEADER` to the header the CDN fills with the client address
+  (`cf-connecting-ip` for Cloudflare). It takes precedence over `X-Forwarded-For`
+  when it holds a valid IP. Only set it once the origin accepts traffic from that
+  CDN alone (firewall, Cloudflare Tunnel, or a CDN-injected secret header checked
+  at the ingress): a client hitting the origin directly could otherwise forge the
+  header and pick a fresh bucket on every request.
 
 ```bash
 kubectl apply -k apps/link/deploy/k8s

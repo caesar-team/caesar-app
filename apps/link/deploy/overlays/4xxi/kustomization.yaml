@@ -1,0 +1,58 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 4xxi DigitalOcean cluster (kube context: do-fra1-k8s-production-fra1).
+# caesar.link is proxied by Cloudflare, which terminates public TLS; the origin
+# uses the ingress-nginx default cert (same as the legacy caesar ingresses).
+# The cluster's cert-manager issuer only covers 4xxi.com/fourxxi.com, so no
+# cert-manager annotation here.
+# The DO load balancer runs externalTrafficPolicy: Cluster without proxy protocol,
+# so X-Forwarded-For only carries a node SNAT address and all clients share one
+# rate-limit bucket (hence RATE_LIMIT_MAX raised to 300 below). Do NOT set
+# CLIENT_IP_HEADER=cf-connecting-ip here until the
+# origin only accepts traffic from Cloudflare: the load balancer is reachable
+# directly, so a forged CF-Connecting-IP would let anyone pick a fresh bucket.
+#
+# Deploy / update (bump newTag first):
+#   kubectl --context do-fra1-k8s-production-fra1 apply -k apps/link/deploy/overlays/4xxi
+#
+# Rollback to the legacy secure-message app on caesar.link. The ingress-nginx
+# admission webhook rejects a duplicate host+path, so free the route first:
+#   kubectl --context do-fra1-k8s-production-fra1 -n link delete ingress link
+#   kubectl --context do-fra1-k8s-production-fra1 apply -f <legacy vault-caesar-team ingress backup>
+
+resources:
+  - ../../k8s
+
+images:
+  - name: ghcr.io/caesar-team/link
+    newTag: main-20261005181506
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: link-config
+    patch: |-
+      - op: replace
+        path: /data/RATE_LIMIT_MAX
+        value: "300"
+  - target:
+      kind: Ingress
+      name: link
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1proxy-read-timeout
+        value: "600"
+      - op: add
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1proxy-send-timeout
+        value: "600"
+      - op: replace
+        path: /spec/rules/0/host
+        value: caesar.link
+      - op: replace
+        path: /spec/tls
+        value:
+          - hosts:
+              - caesar.link
