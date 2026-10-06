@@ -9,17 +9,15 @@ import (
 
 const (
 	saltLen        = 16
-	wrappedLen     = ivLen + keyLen + tagLen // p. body: iv ‖ AES-GCM(KEK, DEK)
+	wrappedLen     = ivLen + keyLen + tagLen
 	maxScryptN     = 1 << 20
-	maxScryptMem   = 1 << 30 // 128·N·r ceiling, 1 GiB
-	defaultScryptN = 1 << 17 // ≈ 128 MiB with r=8
+	maxScryptMem   = 1 << 30
+	defaultScryptN = 1 << 17
 )
 
-// KdfMeta holds the scrypt parameters of a password-protected share. It is stored
-// server-side and handed to the recipient alongside the ciphertext.
 type KdfMeta struct {
 	KDF   string `json:"kdf"`
-	Salt  string `json:"salt"` // base64url, 16 bytes
+	Salt  string `json:"salt"`
 	N     int    `json:"N"`
 	R     int    `json:"r"`
 	P     int    `json:"p"`
@@ -30,9 +28,6 @@ type scryptParams struct{ N, R, P int }
 
 var defaultScryptParams = scryptParams{N: defaultScryptN, R: 8, P: 1}
 
-// validate bounds parameters that arrive from an untrusted server before anything is
-// allocated. Bounding the 128·N·r product matters: N=2²⁰ with r=32 is individually in range
-// but needs ≈ 4 GiB. Mirrors the TypeScript and Swift SDKs exactly.
 func (k *KdfMeta) validate() error {
 	switch {
 	case k.KDF != "scrypt":
@@ -62,14 +57,12 @@ func deriveKEK(password string, kdf *KdfMeta) ([]byte, error) {
 	if len(salt) < saltLen {
 		return nil, malformed("scrypt salt must be at least %d bytes", saltLen)
 	}
-	// UTF-8 bytes, no normalisation — same as the TypeScript SDK's TextEncoder.
 	return scrypt.Key([]byte(password), salt, kdf.N, kdf.R, kdf.P, kdf.DKLen)
 }
 
-// fragment is a decoded `#…` part of a share URL.
 type fragment struct {
-	dek     []byte // k.: the raw data key
-	wrapped []byte // p.: iv ‖ AES-GCM(KEK, DEK)
+	dek     []byte
+	wrapped []byte
 }
 
 func (f fragment) passwordProtected() bool { return f.wrapped != nil }
@@ -103,8 +96,6 @@ func encodeKeyFragment(dek []byte) string {
 	return "k." + b64encode(dek)
 }
 
-// encodePasswordFragment wraps the DEK under a scrypt-derived KEK. The returned KdfMeta must
-// be stored server-side: the recipient cannot derive the KEK without it.
 func encodePasswordFragment(dek []byte, password string, params scryptParams) (string, *KdfMeta, error) {
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
@@ -134,7 +125,6 @@ func unwrapPasswordFragment(wrapped []byte, password string, kdf *KdfMeta) ([]by
 	return dek, nil
 }
 
-// resolveDEK turns a fragment into the data key, unwrapping it with the password when needed.
 func resolveDEK(f fragment, password string, kdf *KdfMeta) ([]byte, error) {
 	if !f.passwordProtected() {
 		return f.dek, nil

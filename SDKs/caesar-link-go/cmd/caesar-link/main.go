@@ -1,18 +1,3 @@
-// Command caesar-link shares secrets through Caesar Link from the terminal. It doubles as
-// the reference integration of the caesarlink package.
-//
-//	echo -n 's3cret' | caesar-link create -ttl 1h            # prints the share URL
-//	caesar-link create -ttl 24h -views 3 -file report.pdf
-//	caesar-link create -password -file key.pem               # prompts for a password
-//	caesar-link create -json -file a.txt                     # {"url","id","deleteToken"}
-//	caesar-link open 'https://link.bshk.app/s/<id>#k.<key>'   # text → stdout, files → -out
-//	caesar-link info <id|url>
-//	caesar-link delete <id|url> <delete-token>
-//
-// Passwords are never accepted as command-line values: argv is visible in the process list
-// and shell history. They come, in order of precedence, from -password-file, an interactive
-// no-echo prompt on the terminal, or $CAESAR_LINK_PASSWORD. `open` prompts on its own when
-// the link turns out to be password-protected.
 package main
 
 import (
@@ -74,15 +59,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: caesar-link <create|open|info|delete> [flags] — run a command with -h for its flags")
 }
 
-// exitOnInterrupt makes Ctrl-C work even while blocked on stdin or a password prompt,
-// neither of which can observe a context. It exits at once, after undoing the no-echo mode
-// a prompt may have left on the terminal.
 func exitOnInterrupt() {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-signals
-		// No output here: a write to a stalled stderr pipe could block the exit forever.
 		restoreTerminal()
 		if sig == syscall.SIGTERM {
 			os.Exit(143)
@@ -91,7 +72,6 @@ func exitOnInterrupt() {
 	}()
 }
 
-// ttyState is the terminal mode saved before a no-echo prompt, so an interrupt can restore it.
 var ttyState struct {
 	sync.Mutex
 	fd    int
@@ -106,9 +86,6 @@ func restoreTerminal() {
 	}
 }
 
-// parseFlags parses only the flags fs defines and returns everything else as positional
-// arguments, in order. Share ids and delete tokens are nanoids and may start with "-", which
-// the flag package would take for an unknown flag. `--` still ends flag parsing.
 func parseFlags(fs *flag.FlagSet, args []string) []string {
 	var flags, pos []string
 	for i := 0; i < len(args); i++ {
@@ -131,7 +108,7 @@ func parseFlags(fs *flag.FlagSet, args []string) []string {
 			}
 		}
 	}
-	fs.Parse(flags) // ExitOnError: bad values and -h exit here
+	fs.Parse(flags)
 	return pos
 }
 
@@ -154,7 +131,6 @@ func create(ctx context.Context, args []string) error {
 		return fmt.Errorf("create: unexpected arguments %q (use -file for files, stdin for text)", extra)
 	}
 
-	// Ask before reading stdin, so an interactive user is not prompted mid-paste.
 	password, err := resolvePassword(*passwordFile, *prompt, true)
 	if err != nil {
 		return err
@@ -221,11 +197,8 @@ func open(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	// Open talks to the server named in the link; BaseURL is not needed.
 	c := &caesarlink.Client{}
 	payload, err := c.Open(ctx, link, password)
-	// ErrPasswordRequired comes back before any request is made, so prompting and retrying
-	// costs nothing.
 	if errors.Is(err, caesarlink.ErrPasswordRequired) {
 		if password, err = promptPassword(false); err != nil {
 			return err
@@ -233,7 +206,6 @@ func open(ctx context.Context, args []string) error {
 		payload, err = c.Open(ctx, link, password)
 	}
 	if errors.Is(err, caesarlink.ErrWrongPassword) {
-		// Checked against the wrapped key before the download, so nothing was consumed.
 		return fmt.Errorf("%w (no view was spent, try again)", err)
 	}
 	if err != nil {
@@ -253,8 +225,6 @@ func open(ctx context.Context, args []string) error {
 	return nil
 }
 
-// saveFile writes a received file without trusting its name: the sender chose it, so it is
-// reduced to a bare base name and never overwrites anything.
 func saveFile(dir string, f caesarlink.File) (string, error) {
 	name := filepath.Base(filepath.Clean("/" + f.Name))
 	if name == "/" || name == "." || name == ".." {
@@ -272,8 +242,6 @@ func saveFile(dir string, f caesarlink.File) (string, error) {
 	return path, out.Close()
 }
 
-// shareTarget resolves an <id|url> argument. A share URL carries its own server, as with
-// `open`, and its fragment is not needed; a bare id goes to -server.
 func shareTarget(arg, server string) (*caesarlink.Client, string, error) {
 	if !strings.Contains(arg, "://") {
 		return caesarlink.NewClient(server), arg, nil
@@ -327,8 +295,6 @@ func del(ctx context.Context, args []string) error {
 	return nil
 }
 
-// resolvePassword picks the password source: -password-file, then an interactive prompt,
-// then $CAESAR_LINK_PASSWORD. Empty means no password.
 func resolvePassword(file string, prompt, confirm bool) (string, error) {
 	switch {
 	case file != "" && prompt:
@@ -359,8 +325,6 @@ func readPasswordFile(path string) (string, error) {
 	return password, nil
 }
 
-// promptPassword reads a password without echo from the controlling terminal rather than
-// stdin, which stays free to carry the payload (`echo secret | caesar-link create -password`).
 func promptPassword(confirm bool) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -370,7 +334,6 @@ func promptPassword(confirm bool) (string, error) {
 
 	read := func(label string) (string, error) {
 		fd := int(tty.Fd())
-		// Remember the echoing mode so an interrupt mid-prompt can put it back.
 		if state, err := term.GetState(fd); err == nil {
 			ttyState.Lock()
 			ttyState.fd, ttyState.state = fd, state

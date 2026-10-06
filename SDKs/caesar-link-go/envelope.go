@@ -9,16 +9,14 @@ import (
 	"strings"
 )
 
-// EnvelopeVersion is the only envelope revision this SDK reads or writes.
 const EnvelopeVersion = 2
 
 const (
-	keyLen = 32 // AES-256 data key (DEK) and wrapping key (KEK)
-	ivLen  = 12 // AES-GCM nonce
-	tagLen = 16 // AES-GCM tag, appended to the ciphertext like WebCrypto does
+	keyLen = 32
+	ivLen  = 12
+	tagLen = 16
 )
 
-// PayloadType discriminates a Payload.
 type PayloadType string
 
 const (
@@ -26,33 +24,26 @@ const (
 	TypeFile PayloadType = "file"
 )
 
-// File is one attachment. Name and MIME travel inside the ciphertext — the server never
-// sees them.
 type File struct {
 	Name string
 	MIME string
 	Data []byte
 }
 
-// Payload is what a share carries: either text or a list of files.
 type Payload struct {
 	Type  PayloadType
-	Text  []byte // TypeText
-	Files []File // TypeFile
+	Text  []byte
+	Files []File
 }
 
-// TextPayload builds a text share from a string.
 func TextPayload(text string) Payload {
 	return Payload{Type: TypeText, Text: []byte(text)}
 }
 
-// FilePayload builds a file share.
 func FilePayload(files ...File) Payload {
 	return Payload{Type: TypeFile, Files: files}
 }
 
-// SealedBlob is the only thing uploaded: AES-256-GCM ciphertext (tag appended) plus the
-// public 12-byte IV.
 type SealedBlob struct {
 	Ciphertext []byte
 	IV         []byte
@@ -64,10 +55,6 @@ type wireFile struct {
 	Data string `json:"data"`
 }
 
-// wireEnvelope is the plaintext JSON sealed under the DEK:
-//
-//	text: {"v":2,"type":"text","data":"<base64url>"}
-//	file: {"v":2,"type":"file","files":[{"name":…,"mime":…,"data":"<base64url>"}]}
 type wireEnvelope struct {
 	V     int        `json:"v"`
 	Type  string     `json:"type"`
@@ -152,8 +139,6 @@ func openEnvelope(blob SealedBlob, dek []byte) (Payload, error) {
 	}
 }
 
-// gcmSeal encrypts under a fresh random IV. The tag is appended to the ciphertext, which is
-// both Go's and WebCrypto's native layout.
 func gcmSeal(key, plaintext []byte) (iv, ciphertext []byte, err error) {
 	aead, err := newGCM(key)
 	if err != nil {
@@ -182,7 +167,6 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// base64url per RFC 4648 §5, unpadded. Decoding tolerates padding.
 func b64encode(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
