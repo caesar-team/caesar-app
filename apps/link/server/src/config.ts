@@ -9,6 +9,7 @@ export interface Config {
   /** Hard ceiling on how long ciphertext may sit on disk, regardless of a share's TTL. */
   retentionSeconds: number;
   trustProxy: boolean;
+  clientIpHeader?: string;
   maxMetaSize: number;
   /** Directory of the built web SPA to serve; undefined = API only */
   webDir?: string;
@@ -16,6 +17,11 @@ export interface Config {
 
 function parseBoolEnv(value: string | undefined): boolean {
   return value === "true" || value === "1";
+}
+
+function parseHeaderNameEnv(value: string | undefined): string | undefined {
+  const name = value?.trim().toLowerCase();
+  return name ? name : undefined;
 }
 
 function parseIntEnv(value: string | undefined, name: string, fallback: number): number {
@@ -49,6 +55,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     maxTtl,
     retentionSeconds: RETENTION_SECONDS,
     trustProxy: parseBoolEnv(env.TRUST_PROXY),
+    clientIpHeader: parseHeaderNameEnv(env.CLIENT_IP_HEADER),
     maxMetaSize: parseIntEnv(env.MAX_META_SIZE, "MAX_META_SIZE", 16384),
     webDir: env.WEB_DIR,
   };

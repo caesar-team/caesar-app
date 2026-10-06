@@ -312,3 +312,60 @@ describe("POST /api/shares rate limiting", () => {
     expect((await postNoHeader()).status).toBe(429);
   });
 });
+
+describe("POST /api/shares rate limiting behind a CDN client-IP header", () => {
+  let cdnDataDir: string;
+  let cdnStore: ShareStore;
+  let cdnApp: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    cdnDataDir = mkdtempSync(join(tmpdir(), "link-cdn-"));
+    cdnStore = new ShareStore(":memory:", cdnDataDir);
+    cdnApp = createApp(
+      cdnStore,
+      makeConfig({ rateLimitMax: 2, trustProxy: true, clientIpHeader: "cf-connecting-ip" })
+    );
+  });
+
+  afterEach(() => {
+    cdnStore.close();
+    rmSync(cdnDataDir, { recursive: true, force: true });
+  });
+
+  function postVia(headers: Record<string, string>): Promise<Response> {
+    const form = new FormData();
+    form.set("blob", new Blob([new Uint8Array([1])]), "cipher.bin");
+    form.set("meta", JSON.stringify({ iv: "x" }));
+    form.set("ttl", "3600");
+    return cdnApp.request("/api/shares", { method: "POST", body: form, headers });
+  }
+
+  test("clients sharing one proxy hop keep separate buckets", async () => {
+    const proxyHop = { "x-forwarded-for": "10.135.1.148" };
+    await postVia({ ...proxyHop, "cf-connecting-ip": "203.0.113.7" });
+    await postVia({ ...proxyHop, "cf-connecting-ip": "203.0.113.7" });
+    const limited = await postVia({ ...proxyHop, "cf-connecting-ip": "203.0.113.7" });
+    expect(limited.status).toBe(429);
+
+    const otherClient = await postVia({ ...proxyHop, "cf-connecting-ip": "2001:db8::1" });
+    expect(otherClient.status).toBe(201);
+  });
+
+  test("one client is limited even when its proxy hop changes", async () => {
+    await postVia({ "x-forwarded-for": "10.0.0.1", "cf-connecting-ip": "203.0.113.9" });
+    await postVia({ "x-forwarded-for": "10.0.0.2", "cf-connecting-ip": "203.0.113.9" });
+    const limited = await postVia({
+      "x-forwarded-for": "10.0.0.3",
+      "cf-connecting-ip": "203.0.113.9",
+    });
+    expect(limited.status).toBe(429);
+  });
+
+  test("a non-IP header value falls back to x-forwarded-for", async () => {
+    const proxyHop = { "x-forwarded-for": "10.135.1.148" };
+    await postVia({ ...proxyHop, "cf-connecting-ip": "spoofed-1" });
+    await postVia({ ...proxyHop, "cf-connecting-ip": "spoofed-2" });
+    const limited = await postVia({ ...proxyHop, "cf-connecting-ip": "spoofed-3" });
+    expect(limited.status).toBe(429);
+  });
+});

@@ -14,4 +14,6 @@ data:
   # from X-Forwarded-For for rate limiting. Set to "false" if the pod is exposed
   # directly (NodePort/LoadBalancer without a trusted proxy in front).
   TRUST_PROXY: "true"
+  # Behind a CDN, key on the header it sets with the client IP instead (README):
+  # CLIENT_IP_HEADER: cf-connecting-ip
   # WEB_DIR is baked into the image (serves the built SPA); no need to set here.
