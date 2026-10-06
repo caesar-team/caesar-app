@@ -48,6 +48,17 @@ describe("loadConfig", () => {
     expect(loadConfig({ TRUST_PROXY: "false" }).trustProxy).toBe(false);
     expect(loadConfig({ TRUST_PROXY: "yes" }).trustProxy).toBe(false);
   });
+
+  test("clientIpHeader is unset by default and when blank", () => {
+    expect(loadConfig({}).clientIpHeader).toBeUndefined();
+    expect(loadConfig({ CLIENT_IP_HEADER: "  " }).clientIpHeader).toBeUndefined();
+  });
+
+  test("clientIpHeader is trimmed and lowercased", () => {
+    expect(loadConfig({ CLIENT_IP_HEADER: " CF-Connecting-IP " }).clientIpHeader).toBe(
+      "cf-connecting-ip"
+    );
+  });
 });
 
 // Retention is the product promise ("nothing older than 30 days"); a TTL above it would

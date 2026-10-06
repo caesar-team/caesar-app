@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { rateLimiter } from "hono-rate-limiter";
@@ -13,10 +14,23 @@ function firstForwardedHop(c: Context): string {
   return forwarded.split(",")[0]?.trim() ?? "";
 }
 
+function trustedHeaderIp(config: Config, c: Context): string | undefined {
+  if (!config.clientIpHeader) {
+    return undefined;
+  }
+  const value = c.req.header(config.clientIpHeader)?.trim() ?? "";
+  return isIP(value) ? value : undefined;
+}
+
 // Rate-limit key. Client-supplied XFF is only honored when the operator opts in
 // via trustProxy; otherwise the Bun peer IP is authoritative, falling back to
 // XFF (tests) then a shared "unknown" bucket.
 function clientKey(config: Config, c: Context): string {
+  const headerIp = trustedHeaderIp(config, c);
+  if (headerIp) {
+    return headerIp;
+  }
+
   if (config.trustProxy) {
     const forwarded = firstForwardedHop(c);
     if (forwarded.length > 0) {
