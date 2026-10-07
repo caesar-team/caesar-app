@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "./app";
@@ -367,5 +367,49 @@ describe("POST /api/shares rate limiting behind a CDN client-IP header", () => {
     await postVia({ ...proxyHop, "cf-connecting-ip": "spoofed-2" });
     const limited = await postVia({ ...proxyHop, "cf-connecting-ip": "spoofed-3" });
     expect(limited.status).toBe(429);
+  });
+});
+
+describe("web SPA serving", () => {
+  let webDir: string;
+  let webApp: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    webDir = mkdtempSync(join(tmpdir(), "link-web-"));
+    writeFileSync(join(webDir, "index.html"), "<!doctype html><div id=root></div>");
+    writeFileSync(join(webDir, "sw.js"), "self.addEventListener('fetch', () => {});");
+    writeFileSync(join(webDir, "app.js"), "export {};");
+    webApp = createApp(store, makeConfig({ webDir }));
+  });
+
+  afterEach(() => {
+    rmSync(webDir, { recursive: true, force: true });
+  });
+
+  test("client routes fall back to index.html", async () => {
+    const res = await webApp.request("/s/abc123");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("id=root");
+  });
+
+  test("missing static files are 404 instead of index.html", async () => {
+    const res = await webApp.request("/manifest.json");
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("id=root");
+  });
+
+  test("the service worker script is always revalidated", async () => {
+    const res = await webApp.request("/sw.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-cache");
+    expect(res.headers.get("content-type")).toContain("javascript");
+  });
+
+  test("other static files keep default caching", async () => {
+    const res = await webApp.request("/app.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBeNull();
+    expect(res.headers.get("content-type")).toContain("javascript");
   });
 });
