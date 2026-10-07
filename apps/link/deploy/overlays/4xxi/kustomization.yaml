@@ -26,7 +26,7 @@ resources:
 
 images:
   - name: ghcr.io/caesar-team/link
-    newTag: main-20261005181506
+    newTag: main-20261007200118
 
 patches:
   - target:
