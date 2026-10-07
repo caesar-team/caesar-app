@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { loadBranding } from "./lib/branding.js";
+import { registerServiceWorker } from "./lib/serviceWorker.js";
 import "./styles.css";
 
 const container = document.getElementById("root");
@@ -17,3 +18,5 @@ createRoot(container).render(
     <App />
   </StrictMode>
 );
+
+registerServiceWorker();
