@@ -116,6 +116,13 @@ kubectl -n link create configmap link-branding --from-file=branding.json=./my-br
 
 Then uncomment the `branding` volume + volumeMount in `deployment.yaml`.
 
+`branding.json` re-skins the page, but the installable app (PWA) identity lives in
+`manifest.webmanifest` and the icons next to it (`pwa-192x192.png`, `pwa-512x512.png`,
+`maskable-icon-512x512.png`, `apple-touch-icon.png`). Mount replacements over those
+paths in `/app/apps/link/web/dist/` the same way if the installed app should carry
+your name and icon. The service worker does not precache these files, so new installs
+see the override right away; already-installed apps refresh on the browser's own schedule.
+
 ---
 
 ## Mirroring Gitea ⇄ GitHub
