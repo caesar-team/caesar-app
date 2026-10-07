@@ -1,11 +1,12 @@
 import type { SharePayload, SharedFile } from "@caesar/link-sdk";
 import { type CSSProperties, useEffect, useState } from "react";
-import { AttachmentPreview } from "../components/AttachmentPreview.js";
+import { AttachmentPreview, FileNote } from "../components/AttachmentPreview.js";
 import { Shell } from "../components/Layout.js";
 import { t } from "../i18n.js";
 import { ApiError, type MetaResult } from "../lib/api.js";
 import { isMarkdown, isPDF } from "../lib/attachmentType.js";
 import { fetchAndOpen, fetchMeta, isPasswordProtected } from "../lib/share.js";
+import { viewsNote } from "../lib/views.js";
 
 type State = "loading" | "password" | "wrong" | "gate" | "text" | "file" | "unavailable" | "error";
 
@@ -84,6 +85,8 @@ export function View() {
   const [copied, setCopied] = useState(false);
 
   const url = window.location.href;
+  // The meta's count from before the open; the blob download itself reports none.
+  const viewsLeft = meta?.viewsLeft ?? null;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount to fetch metadata
   useEffect(() => {
@@ -253,7 +256,7 @@ export function View() {
               lineHeight: 1.45,
             }}
           >
-            {wrong ? t("view.pw_spent") : t("view.pw_hint")}
+            {wrong ? viewsNote(viewsLeft, t("view.pw_spent")) : t("view.pw_hint")}
           </p>
         </div>
       </Shell>
@@ -314,6 +317,7 @@ export function View() {
   }
 
   if (state === "text" && payload?.type === "text") {
+    const note = viewsNote(viewsLeft, t("view.destroyed"));
     return (
       <Shell>
         <div className="anim" style={{ width: "100%", maxWidth: 520, margin: "0 auto" }}>
@@ -395,11 +399,18 @@ export function View() {
               </button>
             </div>
           </div>
-          <p
-            style={{ fontSize: 12, color: "var(--fg-2)", margin: "14px 0 0", textAlign: "center" }}
-          >
-            {t("view.destroyed")}
-          </p>
+          {note && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--fg-2)",
+                margin: "14px 0 0",
+                textAlign: "center",
+              }}
+            >
+              {note}
+            </p>
+          )}
         </div>
       </Shell>
     );
@@ -415,7 +426,11 @@ export function View() {
     if (only && (isMarkdown(only.name, only.mime) || isPDF(only.name, only.mime))) {
       return (
         <Shell>
-          <AttachmentPreview file={only} onDownload={() => downloadFile(only)} />
+          <AttachmentPreview
+            file={only}
+            viewsLeft={viewsLeft}
+            onDownload={() => downloadFile(only)}
+          />
         </Shell>
       );
     }
@@ -524,17 +539,7 @@ export function View() {
           >
             {multi ? t("view.download_all") : t("view.download")}
           </button>
-          <p
-            style={{
-              fontSize: 12,
-              color: "var(--fg-2)",
-              margin: "14px 0 0",
-              textAlign: "center",
-              lineHeight: 1.5,
-            }}
-          >
-            {t("view.file_note")}
-          </p>
+          <FileNote viewsLeft={viewsLeft} />
         </div>
       </Shell>
     );

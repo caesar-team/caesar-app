@@ -2,6 +2,7 @@ import type { SharedFile } from "@caesar/link-sdk";
 import { type CSSProperties, Suspense, lazy, useMemo, useState } from "react";
 import { t } from "../i18n.js";
 import { isPDF } from "../lib/attachmentType.js";
+import { viewsNote } from "../lib/views.js";
 
 // The Markdown pipeline is the heaviest thing in the app; keep it out of the main bundle.
 const MarkdownBody = lazy(() =>
@@ -36,9 +37,11 @@ const card: CSSProperties = {
  */
 export function AttachmentPreview({
   file,
+  viewsLeft,
   onDownload,
 }: {
   file: SharedFile;
+  viewsLeft: number | null;
   onDownload: () => void;
 }) {
   // Trust the bytes, not the sender's labelling: only a real %PDF- signature gets the
@@ -136,18 +139,27 @@ export function AttachmentPreview({
         )}
       </div>
 
-      <p
-        style={{
-          fontSize: 12,
-          color: "var(--fg-2)",
-          margin: "14px 0 0",
-          textAlign: "center",
-          lineHeight: 1.5,
-        }}
-      >
-        {t("view.file_note")}
-      </p>
+      <FileNote viewsLeft={viewsLeft} />
     </div>
+  );
+}
+
+/** Footnote under a file share; `viewsLeft` is the meta's count from before the open. */
+export function FileNote({ viewsLeft }: { viewsLeft: number | null }) {
+  const views = viewsNote(viewsLeft, t("view.spent"));
+  return (
+    <p
+      style={{
+        fontSize: 12,
+        color: "var(--fg-2)",
+        margin: "14px 0 0",
+        textAlign: "center",
+        lineHeight: 1.5,
+      }}
+    >
+      {t("view.file_note")}
+      {views && ` ${views}`}
+    </p>
   );
 }
 

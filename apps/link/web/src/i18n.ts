@@ -92,7 +92,9 @@ const en: Record<string, string> = {
   "view.download_all": "↓ Download all files",
   "view.decrypted_suffix": "decrypted",
   "view.no_preview": "This file can't be previewed here — download it to open.",
-  "view.file_note": "The name came from inside the encrypted payload. This link is now spent.",
+  "view.file_note": "The name came from inside the encrypted payload.",
+  "view.spent": "This link is now spent.",
+  "view.views_left": "Views left: {n}.",
   "view.unavailable": "This link is no longer available",
   "view.unavailable_sub":
     "It may have expired, been viewed already, or never existed. For your privacy, we don't say which.",
@@ -186,7 +188,9 @@ const ru: Record<string, string> = {
   "view.download_all": "↓ Скачать все файлы",
   "view.decrypted_suffix": "расшифровано",
   "view.no_preview": "Этот файл нельзя показать здесь — скачайте, чтобы открыть.",
-  "view.file_note": "Имя пришло изнутри зашифрованных данных. Ссылка теперь потрачена.",
+  "view.file_note": "Имя пришло изнутри зашифрованных данных.",
+  "view.spent": "Ссылка теперь потрачена.",
+  "view.views_left": "Осталось просмотров: {n}.",
   "view.unavailable": "Эта ссылка больше недоступна",
   "view.unavailable_sub":
     "Возможно, она истекла, уже была просмотрена или никогда не существовала. Ради вашей приватности мы не уточняем.",
